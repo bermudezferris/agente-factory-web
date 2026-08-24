@@ -1,4 +1,13 @@
+import type { Metadata } from "next";
 import type { CSSProperties } from "react";
+
+export const metadata: Metadata = {
+  title: "Design Lab Paletas",
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
 
 type PaletteTokens = {
   accent: string;

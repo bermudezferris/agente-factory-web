@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +9,22 @@ import { ResultTag } from "@/components/ui/result-tag";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { agents } from "@/content/agents";
 import { siteConfig } from "@/config/site";
+
+export const metadata: Metadata = {
+  title: "Diagnóstico Estratégico de IA",
+  description:
+    "Agenda un Diagnóstico Estratégico de IA para detectar fricciones, priorizar oportunidades reales y definir el sistema de agentes adecuado para tu empresa.",
+  alternates: {
+    canonical: "/diagnostico-estrategico-ia",
+  },
+  openGraph: {
+    title: "Diagnóstico Estratégico de IA | AgenteFactory",
+    description:
+      "Agenda un Diagnóstico Estratégico de IA para detectar fricciones, priorizar oportunidades reales y definir el sistema de agentes adecuado para tu empresa.",
+    type: "website",
+    url: `${siteConfig.baseUrl}/diagnostico-estrategico-ia`,
+  },
+};
 
 const evaluationPoints = [
   {

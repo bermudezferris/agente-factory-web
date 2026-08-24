@@ -1,9 +1,27 @@
+import type { Metadata } from "next";
+
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { siteConfig } from "@/config/site";
+
+export const metadata: Metadata = {
+  title: "Privacidad",
+  description:
+    "Política base de privacidad para el contacto comercial inicial de AgenteFactory y la solicitud del Diagnóstico Estratégico de IA.",
+  alternates: {
+    canonical: "/privacidad",
+  },
+  openGraph: {
+    title: "Privacidad | AgenteFactory",
+    description:
+      "Política base de privacidad para el contacto comercial inicial de AgenteFactory y la solicitud del Diagnóstico Estratégico de IA.",
+    type: "website",
+    url: `${siteConfig.baseUrl}/privacidad`,
+  },
+};
 
 const privacySections = [
   {

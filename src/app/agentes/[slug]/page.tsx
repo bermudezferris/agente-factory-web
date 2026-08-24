@@ -33,12 +33,16 @@ export async function generateMetadata({
   }
 
   return {
-    title: agent.metadataTitle ?? `${agent.name} | ${siteConfig.name}`,
+    title: agent.metadataTitle ?? agent.name,
     description: agent.metadataDescription,
+    alternates: {
+      canonical: `/agentes/${agent.slug}`,
+    },
     openGraph: {
       title: agent.metadataTitle ?? `${agent.name} | ${siteConfig.name}`,
       description: agent.metadataDescription,
       type: "article",
+      url: `${siteConfig.baseUrl}/agentes/${agent.slug}`,
     },
   };
 }

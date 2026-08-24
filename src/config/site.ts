@@ -4,6 +4,7 @@ const whatsappMessage = encodeURIComponent(
 );
 
 export const siteConfig = {
+  baseUrl: "https://agentefactory.pro",
   name: "AgenteFactory",
   tagline: "Agentes que trabajan. Resultados que se miden.",
   description:

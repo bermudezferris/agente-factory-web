@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+
 import { AgentCard } from "@/components/brand/agent-card";
 import { CtaBanner } from "@/components/brand/cta-banner";
 import { TeamTourShowcase } from "@/components/brand/team-tour-showcase";
@@ -10,6 +12,24 @@ import { ResultTag } from "@/components/ui/result-tag";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { agents } from "@/content/agents";
 import { siteConfig } from "@/config/site";
+
+export const metadata: Metadata = {
+  title: {
+    absolute: "Agentes de IA para empresas | AgenteFactory",
+  },
+  description:
+    "AgenteFactory identifica oportunidades concretas, diseña sistemas de agentes de IA especializados e implementa soluciones para vender más, atender mejor, operar mejor y decidir con más claridad.",
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    title: "Agentes de IA para empresas | AgenteFactory",
+    description:
+      "AgenteFactory identifica oportunidades concretas, diseña sistemas de agentes de IA especializados e implementa soluciones para vender más, atender mejor, operar mejor y decidir con más claridad.",
+    type: "website",
+    url: siteConfig.baseUrl,
+  },
+};
 
 const urgencySignals = [
   "Mientras una empresa responde manualmente, otra ya califica, documenta y mide en paralelo.",

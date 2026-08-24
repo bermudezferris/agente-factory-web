@@ -3,7 +3,11 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AgenteFactory",
+  metadataBase: new URL("https://agentefactory.pro"),
+  title: {
+    default: "AgenteFactory",
+    template: "%s | AgenteFactory",
+  },
   description:
     "Diagnóstico Estratégico de IA para identificar oportunidades reales y diseñar agentes especializados orientados a resultados empresariales.",
 };
