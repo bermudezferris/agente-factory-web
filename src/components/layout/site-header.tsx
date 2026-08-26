@@ -1,3 +1,6 @@
+import Image from "next/image";
+import Link from "next/link";
+
 import { Button } from "@/components/ui/button";
 import { siteConfig } from "@/config/site";
 
@@ -5,14 +8,20 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-30">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 rounded-b-[2rem] border-x border-b border-white/10 bg-[rgba(7,26,43,0.76)] px-4 py-4 backdrop-blur-xl sm:px-10 lg:px-12">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium uppercase tracking-[0.3em] text-cyan-200">
-            {siteConfig.name}
-          </p>
-          <p className="mt-1 hidden text-sm text-slate-300 md:block">
-            {siteConfig.tagline}
-          </p>
-        </div>
+        <Link
+          href="/"
+          aria-label={siteConfig.name}
+          className="flex min-w-0 flex-1 items-center"
+        >
+          <Image
+            src="/images/brand/agente-factory-logo-horizontal.png"
+            alt="AgenteFactory"
+            width={1545}
+            height={232}
+            priority
+            className="h-auto w-full max-w-[10.5rem] sm:max-w-[12.75rem] lg:max-w-[15rem]"
+          />
+        </Link>
 
         <nav aria-label="Principal" className="hidden items-center gap-6 lg:flex">
           {siteConfig.nav.map((item) => (
