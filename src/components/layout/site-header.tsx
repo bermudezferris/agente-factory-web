@@ -19,7 +19,7 @@ export function SiteHeader() {
             width={2172}
             height={724}
             priority
-            className="h-auto w-auto max-h-8 max-w-full sm:max-h-10 lg:max-h-11"
+            className="h-auto w-auto max-h-12 max-w-[220px] sm:max-h-14 sm:max-w-[260px] lg:max-h-16 lg:max-w-[320px]"
           />
         </Link>
 
