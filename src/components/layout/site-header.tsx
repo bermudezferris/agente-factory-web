@@ -14,12 +14,12 @@ export function SiteHeader() {
           className="flex min-w-0 flex-1 items-center"
         >
           <Image
-            src="/images/brand/agente-factory-logo-horizontal.png"
+            src="/images/brand/agente-factory-logo-horizontal-transparent.png"
             alt="AgenteFactory"
-            width={1545}
-            height={232}
+            width={2172}
+            height={724}
             priority
-            className="h-auto w-full max-w-[10.5rem] sm:max-w-[12.75rem] lg:max-w-[15rem]"
+            className="h-auto w-auto max-h-8 max-w-full sm:max-h-10 lg:max-h-11"
           />
         </Link>
 
