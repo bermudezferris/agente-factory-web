@@ -6,6 +6,7 @@ import type {
   ConversationContext,
   ConversationStatus,
   ConversationSummary,
+  ContactMemory,
   IngestResult,
   OutboundClaim,
 } from "@/repositories/conversation-repository";
@@ -21,6 +22,20 @@ type RpcRow = {
   conversation_created: boolean;
   duplicate: boolean;
 };
+
+const emptyContactMemory = (): ContactMemory => ({
+  relevantClientData: [],
+  needsAndInterests: [],
+  agreementsAndCommitments: [],
+  appointmentsAndPending: [],
+  importantObjections: [],
+  humanHandoffNotes: [],
+  previousConversationsSummary: "",
+});
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
 
 export class SupabaseConversationRepository implements ConversationRepository {
   constructor(private readonly client: SupabaseClient) {}
@@ -80,6 +95,27 @@ export class SupabaseConversationRepository implements ConversationRepository {
       .limit(30);
     if (messagesError) throw new Error(`Conversation history failed: ${messagesError.message}`, { cause: messagesError });
 
+    const { data: memory, error: memoryError } = await this.client
+      .from("contact_memories")
+      .select(
+        "relevant_client_data, needs_and_interests, agreements_and_commitments, appointments_and_pending, important_objections, human_handoff_notes, previous_conversations_summary",
+      )
+      .eq("contact_id", row.contacts.id)
+      .maybeSingle();
+    if (memoryError) throw new Error(`Contact memory lookup failed: ${memoryError.message}`, { cause: memoryError });
+
+    const contactMemory = memory
+      ? {
+          relevantClientData: stringList(memory.relevant_client_data),
+          needsAndInterests: stringList(memory.needs_and_interests),
+          agreementsAndCommitments: stringList(memory.agreements_and_commitments),
+          appointmentsAndPending: stringList(memory.appointments_and_pending),
+          importantObjections: stringList(memory.important_objections),
+          humanHandoffNotes: stringList(memory.human_handoff_notes),
+          previousConversationsSummary: memory.previous_conversations_summary ?? "",
+        }
+      : emptyContactMemory();
+
     return {
       id: row.id,
       organizationId: row.organization_id,
@@ -89,6 +125,7 @@ export class SupabaseConversationRepository implements ConversationRepository {
       displayPhoneNumber: row.whatsapp_channels.display_phone_number,
       contactId: row.contacts.id,
       contactWaId: row.contacts.whatsapp_wa_id,
+      memory: contactMemory,
       messages: (messages ?? []).reverse().map((item) => ({
         id: item.id,
         direction: item.direction,
@@ -151,6 +188,25 @@ export class SupabaseConversationRepository implements ConversationRepository {
       .update({ status: "FAILED", metadata: { delivery_state: "failed", reason: reason.slice(0, 300) } })
       .eq("id", messageId);
     if (error) throw new Error(`Outbound failure persistence failed: ${error.message}`, { cause: error });
+  }
+
+  async mergeContactMemory(input: {
+    contactId: string;
+    sourceInteractionId: string;
+    memory: ContactMemory;
+  }): Promise<void> {
+    const { error } = await this.client.rpc("merge_contact_memory", {
+      p_contact_id: input.contactId,
+      p_source_interaction_id: input.sourceInteractionId,
+      p_relevant_client_data: input.memory.relevantClientData,
+      p_needs_and_interests: input.memory.needsAndInterests,
+      p_agreements_and_commitments: input.memory.agreementsAndCommitments,
+      p_appointments_and_pending: input.memory.appointmentsAndPending,
+      p_important_objections: input.memory.importantObjections,
+      p_human_handoff_notes: input.memory.humanHandoffNotes,
+      p_previous_conversations_summary: input.memory.previousConversationsSummary,
+    });
+    if (error) throw new Error(`Contact memory update failed: ${error.message}`, { cause: error });
   }
 
   async listConversations(): Promise<ConversationSummary[]> {

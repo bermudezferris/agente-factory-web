@@ -27,6 +27,16 @@ export type ConversationMessage = {
   status: string;
 };
 
+export type ContactMemory = {
+  relevantClientData: string[];
+  needsAndInterests: string[];
+  agreementsAndCommitments: string[];
+  appointmentsAndPending: string[];
+  importantObjections: string[];
+  humanHandoffNotes: string[];
+  previousConversationsSummary: string;
+};
+
 export type ConversationContext = {
   id: string;
   organizationId: string;
@@ -36,6 +46,7 @@ export type ConversationContext = {
   displayPhoneNumber: string | null;
   contactId: string;
   contactWaId: string;
+  memory: ContactMemory;
   messages: ConversationMessage[];
 };
 
@@ -60,6 +71,11 @@ export interface ConversationRepository {
   }): Promise<OutboundClaim>;
   completeOutboundMessage(messageId: string, whatsappMessageId: string, content: string): Promise<void>;
   failOutboundMessage(messageId: string, reason: string): Promise<void>;
+  mergeContactMemory(input: {
+    contactId: string;
+    sourceInteractionId: string;
+    memory: ContactMemory;
+  }): Promise<void>;
   listConversations(): Promise<ConversationSummary[]>;
   transitionConversation(conversationId: string, status: ConversationStatus): Promise<void>;
 }

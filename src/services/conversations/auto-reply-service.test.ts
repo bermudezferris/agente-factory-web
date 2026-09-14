@@ -27,6 +27,15 @@ function context(status: ConversationContext["status"] = "AI_ACTIVE"): Conversat
     displayPhoneNumber: "+58000",
     contactId: "contact",
     contactWaId: "contact-wa-id",
+    memory: {
+      relevantClientData: ["Empresa: Ejemplo C.A."],
+      needsAndInterests: ["Automatizar soporte por WhatsApp"],
+      agreementsAndCommitments: [],
+      appointmentsAndPending: [],
+      importantObjections: [],
+      humanHandoffNotes: [],
+      previousConversationsSummary: "El cliente consultó sobre automatización.",
+    },
     messages: [
       { id: "inbound-message", direction: "INBOUND", senderType: "CONTACT", content: "Hola", occurredAt: "2026-09-14T00:00:00Z", status: "RECEIVED" },
     ],
@@ -39,8 +48,23 @@ function setup(status: ConversationContext["status"] = "AI_ACTIVE", claimed = tr
     claimOutboundMessage: vi.fn().mockResolvedValue({ claimed, messageId: claimed ? "outbound" : undefined }),
     completeOutboundMessage: vi.fn().mockResolvedValue(undefined),
     failOutboundMessage: vi.fn().mockResolvedValue(undefined),
+    mergeContactMemory: vi.fn().mockResolvedValue(undefined),
   } as unknown as ConversationRepository;
-  const ai = { generateReply: vi.fn().mockResolvedValue("¡Hola! ¿Cómo podemos ayudarte?") } as AiProvider;
+  const ai = {
+    generateReply: vi.fn().mockResolvedValue({
+      reply: "¡Hola! ¿Cómo podemos ayudarte?",
+      memoryRelevant: true,
+      memoryUpdate: {
+        relevantClientData: [],
+        needsAndInterests: ["Solicita una demostración"],
+        agreementsAndCommitments: [],
+        appointmentsAndPending: ["Coordinar demostración"],
+        importantObjections: [],
+        humanHandoffNotes: [],
+        previousConversationsSummary: "El cliente busca automatización y solicita una demostración.",
+      },
+    }),
+  } as AiProvider;
   const whatsapp = { sendText: vi.fn().mockResolvedValue("wamid.OUTBOUND") } as WhatsAppClient;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as Logger;
   return { repository, ai, whatsapp, service: new AutoReplyService(repository, ai, whatsapp, logger) };
@@ -51,13 +75,32 @@ describe("AutoReplyService", () => {
     const { service, repository, ai, whatsapp } = setup();
     await service.process(inbound);
 
-    expect(ai.generateReply).toHaveBeenCalledWith(context().messages);
+    expect(ai.generateReply).toHaveBeenCalledWith({
+      memory: context().memory,
+      recentHistory: context().messages,
+    });
+    expect(repository.mergeContactMemory).toHaveBeenCalledWith({
+      contactId: "contact",
+      sourceInteractionId: "inbound-message",
+      memory: expect.objectContaining({ needsAndInterests: ["Solicita una demostración"] }),
+    });
     expect(whatsapp.sendText).toHaveBeenCalledWith("phone-id", "contact-wa-id", "¡Hola! ¿Cómo podemos ayudarte?");
     expect(repository.completeOutboundMessage).toHaveBeenCalledWith(
       "outbound",
       "wamid.OUTBOUND",
       "¡Hola! ¿Cómo podemos ayudarte?",
     );
+  });
+
+  it("does not persist irrelevant interaction data", async () => {
+    const { service, repository, ai } = setup();
+    vi.mocked(ai.generateReply).mockResolvedValueOnce({
+      reply: "¡Hola!",
+      memoryRelevant: false,
+      memoryUpdate: context().memory,
+    });
+    await service.process(inbound);
+    expect(repository.mergeContactMemory).not.toHaveBeenCalled();
   });
 
   it.each(["HUMAN_REQUIRED", "HUMAN_ACTIVE", "PAUSED", "CLOSED"] as const)(

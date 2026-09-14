@@ -36,7 +36,17 @@ export class AutoReplyService {
         await this.repository.failOutboundMessage(outboundMessageId, "conversation_state_changed");
         return;
       }
-      const reply = await this.ai.generateReply(conversation.messages);
+      const generated = await this.ai.generateReply({
+        memory: conversation.memory,
+        recentHistory: conversation.messages,
+      });
+      if (generated.memoryRelevant) {
+        await this.repository.mergeContactMemory({
+          contactId: conversation.contactId,
+          sourceInteractionId: inbound.messageId,
+          memory: generated.memoryUpdate,
+        });
+      }
 
       conversation = await this.repository.getConversationContext(inbound.conversationId);
       if (conversation.status !== "AI_ACTIVE") {
@@ -46,9 +56,9 @@ export class AutoReplyService {
       const whatsappMessageId = await this.whatsapp.sendText(
         conversation.phoneNumberId,
         conversation.contactWaId,
-        reply,
+        generated.reply,
       );
-      await this.repository.completeOutboundMessage(outboundMessageId, whatsappMessageId, reply);
+      await this.repository.completeOutboundMessage(outboundMessageId, whatsappMessageId, generated.reply);
       this.logger.info("ai_reply_sent", { conversationId: conversation.id, messageId: outboundMessageId });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown auto-reply error";
