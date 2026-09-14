@@ -19,7 +19,7 @@ export const siteConfig = {
     label: "Conoce a los agentes",
     href: "/#agentes",
   },
-  privacyHref: "/privacidad",
+  privacyHref: "/privacy",
   nav: [
     { href: "/diagnostico-estrategico-ia", label: "Diagnóstico" },
     { href: "/#resultados", label: "Resultados" },
@@ -29,6 +29,6 @@ export const siteConfig = {
   contact: {
     whatsappNumber,
     whatsappHref: `https://wa.me/${whatsappNumber}?text=${whatsappMessage}`,
-    email: null,
+    email: "bermudez.ferris@gmail.com",
   },
 } as const;

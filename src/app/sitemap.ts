@@ -7,6 +7,9 @@ const canonicalRoutes = [
   "/",
   "/diagnostico-estrategico-ia",
   "/privacidad",
+  "/privacy",
+  "/terms",
+  "/data-deletion",
 ] as const;
 
 export default function sitemap(): MetadataRoute.Sitemap {
@@ -15,8 +18,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const staticRoutes: MetadataRoute.Sitemap = canonicalRoutes.map((route) => ({
     url: route === "/" ? siteConfig.baseUrl : `${siteConfig.baseUrl}${route}`,
     lastModified,
-    changeFrequency: route === "/privacidad" ? "monthly" : "weekly",
-    priority: route === "/" ? 1 : route === "/privacidad" ? 0.3 : 0.9,
+    changeFrequency: route === "/" || route === "/diagnostico-estrategico-ia" ? "weekly" : "monthly",
+    priority: route === "/" ? 1 : route === "/diagnostico-estrategico-ia" ? 0.9 : 0.3,
   }));
 
   const agentRoutes: MetadataRoute.Sitemap = agents.map((agent) => ({
