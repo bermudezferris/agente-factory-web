@@ -45,6 +45,7 @@ function context(status: ConversationContext["status"] = "AI_ACTIVE"): Conversat
 function setup(status: ConversationContext["status"] = "AI_ACTIVE", claimed = true) {
   const repository = {
     getConversationContext: vi.fn().mockResolvedValue(context(status)),
+    getConversationStatus: vi.fn().mockResolvedValue(status),
     claimOutboundMessage: vi.fn().mockResolvedValue({ claimed, messageId: claimed ? "outbound" : undefined }),
     completeOutboundMessage: vi.fn().mockResolvedValue(undefined),
     failOutboundMessage: vi.fn().mockResolvedValue(undefined),
@@ -82,6 +83,8 @@ describe("AutoReplyService", () => {
       memory: context().memory,
       recentHistory: context().messages,
     });
+    expect(repository.getConversationContext).toHaveBeenCalledOnce();
+    expect(repository.getConversationStatus).toHaveBeenCalledTimes(2);
     expect(repository.mergeContactMemory).toHaveBeenCalledWith({
       contactId: "contact",
       sourceInteractionId: "inbound-message",
@@ -92,6 +95,9 @@ describe("AutoReplyService", () => {
       "outbound",
       "wamid.OUTBOUND",
       "¡Hola! ¿Cómo podemos ayudarte?",
+    );
+    expect(vi.mocked(whatsapp.sendText).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(repository.mergeContactMemory).mock.invocationCallOrder[0],
     );
   });
 
@@ -131,6 +137,17 @@ describe("AutoReplyService", () => {
     vi.mocked(ai.generateReply).mockRejectedValueOnce(new Error("provider unavailable"));
     await service.process(inbound);
     expect(repository.failOutboundMessage).toHaveBeenCalledWith("outbound", "provider unavailable");
+  });
+
+  it("keeps a sent reply successful when the later memory update fails", async () => {
+    const { service, repository, whatsapp } = setup();
+    vi.mocked(repository.mergeContactMemory).mockRejectedValueOnce(new Error("memory unavailable"));
+
+    await service.process(inbound);
+
+    expect(whatsapp.sendText).toHaveBeenCalledOnce();
+    expect(repository.completeOutboundMessage).toHaveBeenCalledOnce();
+    expect(repository.failOutboundMessage).not.toHaveBeenCalled();
   });
 
   it("moves the conversation to HUMAN_REQUIRED after sending a handoff reply", async () => {

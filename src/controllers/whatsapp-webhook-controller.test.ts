@@ -47,6 +47,7 @@ class MemoryRepository implements ConversationRepository {
   }
 
   async getConversationContext(): Promise<never> { throw new Error("not used"); }
+  async getConversationStatus(): Promise<never> { throw new Error("not used"); }
   async claimOutboundMessage(): Promise<never> { throw new Error("not used"); }
   async completeOutboundMessage(): Promise<void> { throw new Error("not used"); }
   async failOutboundMessage(): Promise<void> { throw new Error("not used"); }

@@ -14,7 +14,7 @@ export class AutoReplyService {
   async process(inbound: IngestResult): Promise<void> {
     let outboundMessageId: string | undefined;
     try {
-      let conversation = await this.repository.getConversationContext(inbound.conversationId);
+      const conversation = await this.repository.getConversationContext(inbound.conversationId);
       if (conversation.status !== "AI_ACTIVE") {
         this.logger.info("ai_reply_skipped", { conversationId: conversation.id, status: conversation.status });
         return;
@@ -31,8 +31,7 @@ export class AutoReplyService {
       }
       outboundMessageId = claim.messageId;
 
-      conversation = await this.repository.getConversationContext(inbound.conversationId);
-      if (conversation.status !== "AI_ACTIVE") {
+      if ((await this.repository.getConversationStatus(inbound.conversationId)) !== "AI_ACTIVE") {
         await this.repository.failOutboundMessage(outboundMessageId, "conversation_state_changed");
         return;
       }
@@ -40,16 +39,7 @@ export class AutoReplyService {
         memory: conversation.memory,
         recentHistory: conversation.messages,
       });
-      if (generated.memoryRelevant) {
-        await this.repository.mergeContactMemory({
-          contactId: conversation.contactId,
-          sourceInteractionId: inbound.messageId,
-          memory: generated.memoryUpdate,
-        });
-      }
-
-      conversation = await this.repository.getConversationContext(inbound.conversationId);
-      if (conversation.status !== "AI_ACTIVE") {
+      if ((await this.repository.getConversationStatus(inbound.conversationId)) !== "AI_ACTIVE") {
         await this.repository.failOutboundMessage(outboundMessageId, "conversation_state_changed");
         return;
       }
@@ -65,6 +55,20 @@ export class AutoReplyService {
           conversationId: conversation.id,
           reason: generated.humanHandoffReason,
         });
+      }
+      if (generated.memoryRelevant) {
+        try {
+          await this.repository.mergeContactMemory({
+            contactId: conversation.contactId,
+            sourceInteractionId: inbound.messageId,
+            memory: generated.memoryUpdate,
+          });
+        } catch (memoryError) {
+          this.logger.error("contact_memory_update_error", {
+            conversationId: conversation.id,
+            error: memoryError instanceof Error ? memoryError.message : "Unknown memory error",
+          });
+        }
       }
       this.logger.info("ai_reply_sent", { conversationId: conversation.id, messageId: outboundMessageId });
     } catch (error) {

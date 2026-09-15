@@ -71,9 +71,14 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     expect(request.instructions).toContain(memory.previousConversationsSummary);
     expect(request.instructions).toContain("Valentina (IA)");
     expect(request.instructions).toContain("Carlos (IA)");
-    expect(request.instructions).toContain("https://calendar.app.google/fpBQSm3KDvQH3wqF8");
-    expect(request.instructions).toContain("entender primero");
+    expect(request.instructions).toContain("https://calendar.app.google/g1tSBXA9rHXQ8tLW8");
+    expect(request.instructions).toContain("recepción comercial junior");
+    expect(request.instructions).toContain("No eres la consultora Senior");
+    expect(request.instructions).toContain("Si ya pidió agendar");
     expect(request.instructions).toContain("human_handoff_required=true");
+    expect(request.max_output_tokens).toBe(1200);
+    expect(request.prompt_cache_key).toBe("agentefactory-valentina-reception-v1");
+    expect(request.text.verbosity).toBe("low");
     expect(request.input).toEqual([{ role: "user", content: "¿Podemos confirmar la reunión?" }]);
     expect(request.text.format.type).toBe("json_schema");
     expect(result.memoryUpdate.appointmentsAndPending).toEqual(["Reunión confirmada para el viernes"]);

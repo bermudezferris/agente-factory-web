@@ -72,11 +72,21 @@ export class SupabaseConversationRepository implements ConversationRepository {
   }
 
   async getConversationContext(conversationId: string): Promise<ConversationContext> {
-    const { data: conversation, error } = await this.client
-      .from("conversations")
-      .select("id, organization_id, status, whatsapp_channels(id, phone_number_id, display_phone_number), contacts(id, whatsapp_wa_id)")
-      .eq("id", conversationId)
-      .single();
+    const [conversationResult, messagesResult] = await Promise.all([
+      this.client
+        .from("conversations")
+        .select("id, organization_id, status, whatsapp_channels(id, phone_number_id, display_phone_number), contacts(id, whatsapp_wa_id)")
+        .eq("id", conversationId)
+        .single(),
+      this.client
+        .from("messages")
+        .select("id, direction, sender_type, content, occurred_at, status")
+        .eq("conversation_id", conversationId)
+        .not("content", "is", null)
+        .order("occurred_at", { ascending: false })
+        .limit(16),
+    ]);
+    const { data: conversation, error } = conversationResult;
     if (error) throw new Error(`Conversation lookup failed: ${error.message}`, { cause: error });
 
     const row = conversation as unknown as {
@@ -86,13 +96,7 @@ export class SupabaseConversationRepository implements ConversationRepository {
       whatsapp_channels: { id: string; phone_number_id: string; display_phone_number: string | null };
       contacts: { id: string; whatsapp_wa_id: string };
     };
-    const { data: messages, error: messagesError } = await this.client
-      .from("messages")
-      .select("id, direction, sender_type, content, occurred_at, status")
-      .eq("conversation_id", conversationId)
-      .not("content", "is", null)
-      .order("occurred_at", { ascending: false })
-      .limit(30);
+    const { data: messages, error: messagesError } = messagesResult;
     if (messagesError) throw new Error(`Conversation history failed: ${messagesError.message}`, { cause: messagesError });
 
     const { data: memory, error: memoryError } = await this.client
@@ -135,6 +139,16 @@ export class SupabaseConversationRepository implements ConversationRepository {
         status: item.status,
       })),
     };
+  }
+
+  async getConversationStatus(conversationId: string): Promise<ConversationStatus> {
+    const { data, error } = await this.client
+      .from("conversations")
+      .select("status")
+      .eq("id", conversationId)
+      .single();
+    if (error) throw new Error(`Conversation status lookup failed: ${error.message}`, { cause: error });
+    return data.status as ConversationStatus;
   }
 
   async claimOutboundMessage(input: {

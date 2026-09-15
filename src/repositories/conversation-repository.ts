@@ -64,6 +64,7 @@ export type OutboundClaim = { claimed: boolean; messageId?: string };
 export interface ConversationRepository {
   ingestInboundTextMessage(message: InboundTextMessage): Promise<IngestResult>;
   getConversationContext(conversationId: string): Promise<ConversationContext>;
+  getConversationStatus(conversationId: string): Promise<ConversationStatus>;
   claimOutboundMessage(input: {
     conversation: ConversationContext;
     idempotencyKey: string;

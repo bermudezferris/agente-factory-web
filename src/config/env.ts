@@ -32,7 +32,7 @@ export function getAppEnv(): AppEnv {
     openAiModel: process.env.OPENAI_MODEL?.trim() || "gpt-5-mini",
     agentName: process.env.AGENT_NAME?.trim() || "Valentina (IA)",
     bookingUrl:
-      process.env.BOOKING_URL?.trim() || "https://calendar.app.google/fpBQSm3KDvQH3wqF8",
+      process.env.BOOKING_URL?.trim() || "https://calendar.app.google/g1tSBXA9rHXQ8tLW8",
     adminApiKey: process.env.ADMIN_API_KEY?.trim() || undefined,
   };
 }
