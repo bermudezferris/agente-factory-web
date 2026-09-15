@@ -39,6 +39,8 @@ describe("OpenAIResponsesProvider persistent memory", () => {
                   text: JSON.stringify({
                     reply: "Sí, confirmemos la reunión del viernes.",
                     memory_relevant: true,
+                    human_handoff_required: false,
+                    human_handoff_reason: "",
                     relevant_client_data: [],
                     needs_and_interests: [],
                     agreements_and_commitments: ["Confirmar reunión"],
@@ -67,8 +69,14 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     expect(request.store).toBe(false);
     expect(request.instructions).toContain("Empresa: Acme");
     expect(request.instructions).toContain(memory.previousConversationsSummary);
+    expect(request.instructions).toContain("Valentina (IA)");
+    expect(request.instructions).toContain("Carlos (IA)");
+    expect(request.instructions).toContain("https://calendar.app.google/fpBQSm3KDvQH3wqF8");
+    expect(request.instructions).toContain("entender primero");
+    expect(request.instructions).toContain("human_handoff_required=true");
     expect(request.input).toEqual([{ role: "user", content: "¿Podemos confirmar la reunión?" }]);
     expect(request.text.format.type).toBe("json_schema");
     expect(result.memoryUpdate.appointmentsAndPending).toEqual(["Reunión confirmada para el viernes"]);
+    expect(result.humanHandoffRequired).toBe(false);
   });
 });

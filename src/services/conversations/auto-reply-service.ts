@@ -59,6 +59,13 @@ export class AutoReplyService {
         generated.reply,
       );
       await this.repository.completeOutboundMessage(outboundMessageId, whatsappMessageId, generated.reply);
+      if (generated.humanHandoffRequired) {
+        await this.repository.transitionConversation(conversation.id, "HUMAN_REQUIRED");
+        this.logger.info("ai_handoff_requested", {
+          conversationId: conversation.id,
+          reason: generated.humanHandoffReason,
+        });
+      }
       this.logger.info("ai_reply_sent", { conversationId: conversation.id, messageId: outboundMessageId });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown auto-reply error";

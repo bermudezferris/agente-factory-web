@@ -36,7 +36,10 @@ function getDependencies(): WebhookDependencies {
       env.openAiApiKey && env.metaAccessToken
         ? new AutoReplyService(
             repository,
-            new OpenAIResponsesProvider(env.openAiApiKey, env.openAiModel),
+            new OpenAIResponsesProvider(env.openAiApiKey, env.openAiModel, {
+              agentName: env.agentName,
+              bookingUrl: env.bookingUrl,
+            }),
             new MetaWhatsAppClient(env.metaAccessToken),
             logger,
           )

@@ -49,11 +49,14 @@ function setup(status: ConversationContext["status"] = "AI_ACTIVE", claimed = tr
     completeOutboundMessage: vi.fn().mockResolvedValue(undefined),
     failOutboundMessage: vi.fn().mockResolvedValue(undefined),
     mergeContactMemory: vi.fn().mockResolvedValue(undefined),
+    transitionConversation: vi.fn().mockResolvedValue(undefined),
   } as unknown as ConversationRepository;
   const ai = {
     generateReply: vi.fn().mockResolvedValue({
       reply: "¡Hola! ¿Cómo podemos ayudarte?",
       memoryRelevant: true,
+      humanHandoffRequired: false,
+      humanHandoffReason: "",
       memoryUpdate: {
         relevantClientData: [],
         needsAndInterests: ["Solicita una demostración"],
@@ -97,6 +100,8 @@ describe("AutoReplyService", () => {
     vi.mocked(ai.generateReply).mockResolvedValueOnce({
       reply: "¡Hola!",
       memoryRelevant: false,
+      humanHandoffRequired: false,
+      humanHandoffReason: "",
       memoryUpdate: context().memory,
     });
     await service.process(inbound);
@@ -126,5 +131,22 @@ describe("AutoReplyService", () => {
     vi.mocked(ai.generateReply).mockRejectedValueOnce(new Error("provider unavailable"));
     await service.process(inbound);
     expect(repository.failOutboundMessage).toHaveBeenCalledWith("outbound", "provider unavailable");
+  });
+
+  it("moves the conversation to HUMAN_REQUIRED after sending a handoff reply", async () => {
+    const { service, repository, ai, whatsapp } = setup();
+    vi.mocked(ai.generateReply).mockResolvedValueOnce({
+      reply: "Esto prefiero pasárselo al equipo para darte una respuesta bien aterrizada.",
+      memoryRelevant: false,
+      humanHandoffRequired: true,
+      humanHandoffReason: "El contacto solicitó una propuesta formal",
+      memoryUpdate: context().memory,
+    });
+
+    await service.process(inbound);
+
+    expect(whatsapp.sendText).toHaveBeenCalledOnce();
+    expect(repository.completeOutboundMessage).toHaveBeenCalledOnce();
+    expect(repository.transitionConversation).toHaveBeenCalledWith("conversation", "HUMAN_REQUIRED");
   });
 });

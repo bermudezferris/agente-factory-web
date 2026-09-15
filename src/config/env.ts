@@ -6,6 +6,8 @@ export type AppEnv = {
   metaAccessToken?: string;
   openAiApiKey?: string;
   openAiModel: string;
+  agentName: string;
+  bookingUrl: string;
   adminApiKey?: string;
 };
 
@@ -28,6 +30,9 @@ export function getAppEnv(): AppEnv {
     metaAccessToken: process.env.META_ACCESS_TOKEN?.trim() || undefined,
     openAiApiKey: process.env.OPENAI_API_KEY?.trim() || undefined,
     openAiModel: process.env.OPENAI_MODEL?.trim() || "gpt-5-mini",
+    agentName: process.env.AGENT_NAME?.trim() || "Valentina (IA)",
+    bookingUrl:
+      process.env.BOOKING_URL?.trim() || "https://calendar.app.google/fpBQSm3KDvQH3wqF8",
     adminApiKey: process.env.ADMIN_API_KEY?.trim() || undefined,
   };
 }
