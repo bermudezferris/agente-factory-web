@@ -9,7 +9,9 @@ import type {
   ContactMemory,
   IngestResult,
   OutboundClaim,
+  Appointment,
 } from "@/repositories/conversation-repository";
+import { AppointmentSlotConflictError } from "@/repositories/conversation-repository";
 import type { InboundTextMessage } from "@/types/whatsapp";
 
 type RpcRow = {
@@ -35,6 +37,27 @@ const emptyContactMemory = (): ContactMemory => ({
 
 function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function mapAppointment(row: Record<string, unknown>): Appointment {
+  return {
+    id: row.id as string,
+    organizationId: row.organization_id as string,
+    conversationId: row.conversation_id as string,
+    contactId: row.contact_id as string,
+    calendarId: row.calendar_id as string,
+    calendarEventId: row.calendar_event_id as string | null,
+    status: row.status as Appointment["status"],
+    appointmentType: row.appointment_type as string,
+    startsAt: row.starts_at as string,
+    endsAt: row.ends_at as string,
+    blockedUntil: row.blocked_until as string,
+    timezone: row.timezone as string,
+    attendeeName: row.attendee_name as string,
+    attendeeEmail: row.attendee_email as string,
+    company: row.company as string | null,
+    reason: row.reason as string | null,
+  };
 }
 
 export class SupabaseConversationRepository implements ConversationRepository {
@@ -75,7 +98,7 @@ export class SupabaseConversationRepository implements ConversationRepository {
     const [conversationResult, messagesResult] = await Promise.all([
       this.client
         .from("conversations")
-        .select("id, organization_id, status, whatsapp_channels(id, phone_number_id, display_phone_number), contacts(id, whatsapp_wa_id)")
+        .select("id, organization_id, status, whatsapp_channels(id, phone_number_id, display_phone_number), contacts(id, whatsapp_wa_id, display_name)")
         .eq("id", conversationId)
         .single(),
       this.client
@@ -94,7 +117,7 @@ export class SupabaseConversationRepository implements ConversationRepository {
       organization_id: string;
       status: ConversationStatus;
       whatsapp_channels: { id: string; phone_number_id: string; display_phone_number: string | null };
-      contacts: { id: string; whatsapp_wa_id: string };
+      contacts: { id: string; whatsapp_wa_id: string; display_name: string | null };
     };
     const { data: messages, error: messagesError } = messagesResult;
     if (messagesError) throw new Error(`Conversation history failed: ${messagesError.message}`, { cause: messagesError });
@@ -129,6 +152,7 @@ export class SupabaseConversationRepository implements ConversationRepository {
       displayPhoneNumber: row.whatsapp_channels.display_phone_number,
       contactId: row.contacts.id,
       contactWaId: row.contacts.whatsapp_wa_id,
+      contactName: row.contacts.display_name,
       memory: contactMemory,
       messages: (messages ?? []).reverse().map((item) => ({
         id: item.id,
@@ -221,6 +245,105 @@ export class SupabaseConversationRepository implements ConversationRepository {
       p_previous_conversations_summary: input.memory.previousConversationsSummary,
     });
     if (error) throw new Error(`Contact memory update failed: ${error.message}`, { cause: error });
+  }
+
+  async getCurrentAppointment(contactId: string): Promise<Appointment | null> {
+    const { data, error } = await this.client
+      .from("appointments")
+      .select("*")
+      .eq("contact_id", contactId)
+      .in("status", ["HOLD", "BOOKED"])
+      .gte("ends_at", new Date().toISOString())
+      .order("starts_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`Appointment lookup failed: ${error.message}`, { cause: error });
+    return data ? mapAppointment(data as Record<string, unknown>) : null;
+  }
+
+  async createAppointmentHold(input: Omit<Appointment, "id" | "calendarEventId" | "status"> & {
+    sourceInteractionId: string;
+  }): Promise<Appointment> {
+    const row = {
+      organization_id: input.organizationId,
+      conversation_id: input.conversationId,
+      contact_id: input.contactId,
+      calendar_id: input.calendarId,
+      source_interaction_id: input.sourceInteractionId,
+      status: "HOLD",
+      appointment_type: input.appointmentType,
+      starts_at: input.startsAt,
+      ends_at: input.endsAt,
+      blocked_until: input.blockedUntil,
+      timezone: input.timezone,
+      attendee_name: input.attendeeName,
+      attendee_email: input.attendeeEmail,
+      company: input.company,
+      reason: input.reason,
+    };
+    const { data, error } = await this.client.from("appointments").insert(row).select("*").single();
+    if (error?.code === "23505") {
+      const { data: existing, error: lookupError } = await this.client
+        .from("appointments")
+        .select("*")
+        .eq("source_interaction_id", input.sourceInteractionId)
+        .single();
+      if (lookupError) throw new Error(`Appointment idempotency lookup failed: ${lookupError.message}`, { cause: lookupError });
+      return mapAppointment(existing as Record<string, unknown>);
+    }
+    if (error?.code === "23P01") throw new AppointmentSlotConflictError();
+    if (error) throw new Error(`Appointment hold failed: ${error.message}`, { cause: error });
+    return mapAppointment(data as Record<string, unknown>);
+  }
+
+  async markAppointmentBooked(
+    appointmentId: string,
+    calendarEventId: string,
+    startsAt: string,
+    endsAt: string,
+    blockedUntil: string,
+  ): Promise<void> {
+    const { error } = await this.client
+      .from("appointments")
+      .update({
+        status: "BOOKED",
+        calendar_event_id: calendarEventId,
+        starts_at: startsAt,
+        ends_at: endsAt,
+        blocked_until: blockedUntil,
+      })
+      .eq("id", appointmentId);
+    if (error) throw new Error(`Appointment completion failed: ${error.message}`, { cause: error });
+  }
+
+  async markAppointmentFailed(appointmentId: string, reason: string): Promise<void> {
+    const { error } = await this.client
+      .from("appointments")
+      .update({ status: "FAILED", metadata: { failure_reason: reason.slice(0, 300) } })
+      .eq("id", appointmentId);
+    if (error) throw new Error(`Appointment failure persistence failed: ${error.message}`, { cause: error });
+  }
+
+  async markAppointmentCancelled(appointmentId: string): Promise<void> {
+    const { error } = await this.client
+      .from("appointments")
+      .update({ status: "CANCELLED", cancelled_at: new Date().toISOString() })
+      .eq("id", appointmentId);
+    if (error) throw new Error(`Appointment cancellation persistence failed: ${error.message}`, { cause: error });
+  }
+
+  async updateAppointmentSchedule(
+    appointmentId: string,
+    startsAt: string,
+    endsAt: string,
+    blockedUntil: string,
+    timezone: string,
+  ): Promise<void> {
+    const { error } = await this.client
+      .from("appointments")
+      .update({ starts_at: startsAt, ends_at: endsAt, blocked_until: blockedUntil, timezone, status: "BOOKED" })
+      .eq("id", appointmentId);
+    if (error) throw new Error(`Appointment reschedule persistence failed: ${error.message}`, { cause: error });
   }
 
   async listConversations(): Promise<ConversationSummary[]> {

@@ -41,6 +41,13 @@ describe("OpenAIResponsesProvider persistent memory", () => {
                     memory_relevant: true,
                     human_handoff_required: false,
                     human_handoff_reason: "",
+                    appointment_action: "NONE",
+                    appointment_requested_start: null,
+                    appointment_timezone: null,
+                    attendee_name: null,
+                    attendee_email: null,
+                    attendee_company: null,
+                    appointment_reason: null,
                     relevant_client_data: [],
                     needs_and_interests: [],
                     agreements_and_commitments: ["Confirmar reunión"],
@@ -63,6 +70,7 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     const result = await new OpenAIResponsesProvider("secret", "gpt-test").generateReply({
       memory,
       recentHistory: history,
+      appointment: null,
     });
 
     const request = JSON.parse(fetchMock.mock.calls[0][1].body as string);
@@ -71,10 +79,10 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     expect(request.instructions).toContain(memory.previousConversationsSummary);
     expect(request.instructions).toContain("Valentina (IA)");
     expect(request.instructions).toContain("Carlos (IA)");
-    expect(request.instructions).toContain("https://calendar.app.google/g1tSBXA9rHXQ8tLW8");
+    expect(request.instructions).not.toContain("https://calendar.app.google/");
     expect(request.instructions).toContain("recepción comercial junior");
     expect(request.instructions).toContain("No eres la consultora Senior");
-    expect(request.instructions).toContain("Si ya pidió agendar");
+    expect(request.instructions).toContain("nunca debe salir de WhatsApp");
     expect(request.instructions).toContain("español venezolano profesional");
     expect(request.instructions).toContain("No uses voseo");
     expect(request.instructions).toContain("tienes, quieres, puedes, dime, cuéntame y haces");
@@ -87,5 +95,52 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     expect(request.text.format.type).toBe("json_schema");
     expect(result.memoryUpdate.appointmentsAndPending).toEqual(["Reunión confirmada para el viernes"]);
     expect(result.humanHandoffRequired).toBe(false);
+    expect(result.appointmentRequest).toBeNull();
+  });
+
+  it("returns a direct booking request only through the structured schema", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      output_text: JSON.stringify({
+        reply: "Voy a revisar ese horario.",
+        memory_relevant: false,
+        human_handoff_required: false,
+        human_handoff_reason: "",
+        appointment_action: "BOOK",
+        appointment_requested_start: "2026-09-16T09:00:00-04:00",
+        appointment_timezone: "America/Caracas",
+        attendee_name: "María Pérez",
+        attendee_email: "maria@example.com",
+        attendee_company: "Acme",
+        appointment_reason: "Automatizar soporte",
+        relevant_client_data: [],
+        needs_and_interests: [],
+        agreements_and_commitments: [],
+        appointments_and_pending: [],
+        important_objections: [],
+        human_handoff_notes: [],
+        previous_conversations_summary: memory.previousConversationsSummary,
+      }),
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new OpenAIResponsesProvider("secret", "gpt-test", {
+      agentName: "Valentina (IA)",
+      directBookingEnabled: true,
+      bookingDurationMinutes: 25,
+    }).generateReply({ memory, recentHistory: history, appointment: null });
+
+    const request = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(request.instructions).toContain("nunca debe salir de WhatsApp");
+    expect(request.instructions).toContain("appointment_requested_start");
+    expect(request.instructions).not.toContain("https://calendar.app.google/");
+    expect(result.appointmentRequest).toEqual({
+      action: "BOOK",
+      requestedStart: "2026-09-16T09:00:00-04:00",
+      timezone: "America/Caracas",
+      attendeeName: "María Pérez",
+      attendeeEmail: "maria@example.com",
+      company: "Acme",
+      reason: "Automatizar soporte",
+    });
   });
 });

@@ -11,6 +11,7 @@ import { logger } from "@/utils/logger";
 import { AutoReplyService } from "@/services/conversations/auto-reply-service";
 import { OpenAIResponsesProvider } from "@/services/ai/openai-responses-provider";
 import { MetaWhatsAppClient } from "@/services/whatsapp/meta-whatsapp-client";
+import { GoogleCalendarBookingClient } from "@/services/calendar/google-calendar-booking-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,22 @@ function getDependencies(): WebhookDependencies {
     env.supabaseUrl,
     env.supabaseServiceRoleKey,
   );
+  const calendar =
+    env.googleCalendarId && env.googleClientId && env.googleClientSecret && env.googleRefreshToken
+      ? new GoogleCalendarBookingClient(
+          env.googleClientId,
+          env.googleClientSecret,
+          env.googleRefreshToken,
+          env.googleCalendarId,
+          {
+            timeZone: "America/New_York",
+            durationMinutes: env.bookingDurationMinutes,
+            bufferMinutes: env.bookingBufferMinutes,
+            minLeadHours: 4,
+            maxAdvanceDays: 60,
+          },
+        )
+      : undefined;
 
   dependencies = {
     verifyToken: env.metaWebhookVerifyToken,
@@ -38,15 +55,25 @@ function getDependencies(): WebhookDependencies {
             repository,
             new OpenAIResponsesProvider(env.openAiApiKey, env.openAiModel, {
               agentName: env.agentName,
-              bookingUrl: env.bookingUrl,
+              directBookingEnabled: Boolean(calendar),
+              bookingDurationMinutes: env.bookingDurationMinutes,
             }),
             new MetaWhatsAppClient(env.metaAccessToken),
             logger,
+            calendar,
+            calendar && env.googleCalendarId
+              ? {
+                  calendarId: env.googleCalendarId,
+                  timeZone: "America/New_York",
+                  durationMinutes: env.bookingDurationMinutes,
+                  bufferMinutes: env.bookingBufferMinutes,
+                }
+              : undefined,
           )
         : undefined,
   };
 
-  logger.info("whatsapp_webhook_initialized");
+  logger.info("whatsapp_webhook_initialized", { directBookingEnabled: Boolean(calendar) });
   return dependencies;
 }
 

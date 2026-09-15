@@ -8,6 +8,12 @@ export type AppEnv = {
   openAiModel: string;
   agentName: string;
   bookingUrl: string;
+  googleCalendarId?: string;
+  googleClientId?: string;
+  googleClientSecret?: string;
+  googleRefreshToken?: string;
+  bookingDurationMinutes: number;
+  bookingBufferMinutes: number;
   adminApiKey?: string;
 };
 
@@ -33,6 +39,12 @@ export function getAppEnv(): AppEnv {
     agentName: process.env.AGENT_NAME?.trim() || "Valentina (IA)",
     bookingUrl:
       process.env.BOOKING_URL?.trim() || "https://calendar.app.google/g1tSBXA9rHXQ8tLW8",
+    googleCalendarId: process.env.GOOGLE_CALENDAR_ID?.trim() || undefined,
+    googleClientId: process.env.GOOGLE_CLIENT_ID?.trim() || undefined,
+    googleClientSecret: process.env.GOOGLE_CLIENT_SECRET?.trim() || undefined,
+    googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN?.trim() || undefined,
+    bookingDurationMinutes: Number(process.env.BOOKING_DURATION_MINUTES?.trim() || "25"),
+    bookingBufferMinutes: Number(process.env.BOOKING_BUFFER_MINUTES?.trim() || "20"),
     adminApiKey: process.env.ADMIN_API_KEY?.trim() || undefined,
   };
 }

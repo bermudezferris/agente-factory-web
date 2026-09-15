@@ -46,6 +46,7 @@ export type ConversationContext = {
   displayPhoneNumber: string | null;
   contactId: string;
   contactWaId: string;
+  contactName: string | null;
   memory: ContactMemory;
   messages: ConversationMessage[];
 };
@@ -60,6 +61,34 @@ export type ConversationSummary = {
 };
 
 export type OutboundClaim = { claimed: boolean; messageId?: string };
+
+export type AppointmentStatus = "HOLD" | "BOOKED" | "CANCELLED" | "FAILED";
+
+export type Appointment = {
+  id: string;
+  organizationId: string;
+  conversationId: string;
+  contactId: string;
+  calendarId: string;
+  calendarEventId: string | null;
+  status: AppointmentStatus;
+  appointmentType: string;
+  startsAt: string;
+  endsAt: string;
+  blockedUntil: string;
+  timezone: string;
+  attendeeName: string;
+  attendeeEmail: string;
+  company: string | null;
+  reason: string | null;
+};
+
+export class AppointmentSlotConflictError extends Error {
+  constructor() {
+    super("The requested appointment slot is already reserved");
+    this.name = "AppointmentSlotConflictError";
+  }
+}
 
 export interface ConversationRepository {
   ingestInboundTextMessage(message: InboundTextMessage): Promise<IngestResult>;
@@ -77,6 +106,14 @@ export interface ConversationRepository {
     sourceInteractionId: string;
     memory: ContactMemory;
   }): Promise<void>;
+  getCurrentAppointment(contactId: string): Promise<Appointment | null>;
+  createAppointmentHold(input: Omit<Appointment, "id" | "calendarEventId" | "status"> & {
+    sourceInteractionId: string;
+  }): Promise<Appointment>;
+  markAppointmentBooked(appointmentId: string, calendarEventId: string, startsAt: string, endsAt: string, blockedUntil: string): Promise<void>;
+  markAppointmentFailed(appointmentId: string, reason: string): Promise<void>;
+  markAppointmentCancelled(appointmentId: string): Promise<void>;
+  updateAppointmentSchedule(appointmentId: string, startsAt: string, endsAt: string, blockedUntil: string, timezone: string): Promise<void>;
   listConversations(): Promise<ConversationSummary[]>;
   transitionConversation(conversationId: string, status: ConversationStatus): Promise<void>;
 }
