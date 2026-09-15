@@ -75,6 +75,10 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     expect(request.instructions).toContain("recepción comercial junior");
     expect(request.instructions).toContain("No eres la consultora Senior");
     expect(request.instructions).toContain("Si ya pidió agendar");
+    expect(request.instructions).toContain("español venezolano profesional");
+    expect(request.instructions).toContain("No uses voseo");
+    expect(request.instructions).toContain("tienes, quieres, puedes, dime, cuéntame y haces");
+    expect(request.instructions).toContain("revisión silenciosa");
     expect(request.instructions).toContain("human_handoff_required=true");
     expect(request.max_output_tokens).toBe(1200);
     expect(request.prompt_cache_key).toBe("agentefactory-valentina-reception-v1");
