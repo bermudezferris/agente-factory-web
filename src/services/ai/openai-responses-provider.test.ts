@@ -71,6 +71,7 @@ describe("OpenAIResponsesProvider persistent memory", () => {
       memory,
       recentHistory: history,
       appointment: null,
+      contactWaId: "580000000000",
     });
 
     const request = JSON.parse(fetchMock.mock.calls[0][1].body as string);
@@ -88,7 +89,8 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     expect(request.instructions).toContain("tienes, quieres, puedes, dime, cuéntame y haces");
     expect(request.instructions).toContain("revisión silenciosa");
     expect(request.instructions).toContain("human_handoff_required=true");
-    expect(request.max_output_tokens).toBe(1200);
+    expect(request.instructions).toContain("Interpreta las horas propuestas sin zona explícita en America/Caracas");
+    expect(request.max_output_tokens).toBe(4000);
     expect(request.prompt_cache_key).toBe("agentefactory-valentina-reception-v1");
     expect(request.text.verbosity).toBe("low");
     expect(request.input).toEqual([{ role: "user", content: "¿Podemos confirmar la reunión?" }]);
@@ -96,6 +98,19 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     expect(result.memoryUpdate.appointmentsAndPending).toEqual(["Reunión confirmada para el viernes"]);
     expect(result.humanHandoffRequired).toBe(false);
     expect(result.appointmentRequest).toBeNull();
+  });
+
+  it("reports a response truncated by the output-token limit explicitly", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      status: "incomplete",
+      incomplete_details: { reason: "max_output_tokens" },
+    }), { status: 200, headers: { "content-type": "application/json" } })));
+
+    await expect(new OpenAIResponsesProvider("secret", "gpt-test").generateReply({
+      memory,
+      recentHistory: history,
+      appointment: null,
+    })).rejects.toThrow("OpenAI response incomplete: max_output_tokens");
   });
 
   it("returns a direct booking request only through the structured schema", async () => {

@@ -116,6 +116,7 @@ export class AutoReplyService {
         memory: conversation.memory,
         recentHistory: conversation.messages,
         appointment: currentAppointment,
+        contactWaId: conversation.contactWaId,
       });
       if ((await this.repository.getConversationStatus(inbound.conversationId)) !== "AI_ACTIVE") {
         await this.repository.failOutboundMessage(outboundMessageId, "conversation_state_changed");

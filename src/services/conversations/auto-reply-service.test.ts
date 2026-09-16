@@ -138,6 +138,7 @@ describe("AutoReplyService", () => {
       memory: context().memory,
       recentHistory: context().messages,
       appointment: null,
+      contactWaId: "contact-wa-id",
     });
     expect(repository.getConversationContext).toHaveBeenCalledOnce();
     expect(repository.getConversationStatus).toHaveBeenCalledTimes(2);
