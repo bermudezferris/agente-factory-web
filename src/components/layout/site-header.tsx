@@ -1,7 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
 
-import { Button } from "@/components/ui/button";
 import { siteConfig } from "@/config/site";
 
 export function SiteHeader() {
@@ -19,7 +18,7 @@ export function SiteHeader() {
             width={2172}
             height={724}
             priority
-            className="h-auto w-auto max-h-12 max-w-[220px] sm:max-h-14 sm:max-w-[260px] lg:max-h-16 lg:max-w-[320px]"
+            className="h-auto w-[130px] shrink-0 sm:w-auto sm:max-h-14 sm:max-w-[260px] lg:max-h-16 lg:max-w-[320px]"
           />
         </Link>
 
@@ -35,17 +34,27 @@ export function SiteHeader() {
           ))}
         </nav>
 
-        <div className="flex items-center gap-2 sm:gap-3">
-          <div className="hidden md:block">
-            <Button href={siteConfig.secondaryCta.href} size="sm" variant="ghost">
-              Conoce a los agentes
-            </Button>
-          </div>
-          <Button href={siteConfig.cta.href} size="sm">
-            <span className="hidden sm:inline">Agenda tu diagnóstico</span>
-            <span className="sm:hidden">Agendar</span>
-          </Button>
-        </div>
+        <a
+          href={siteConfig.contact.whatsappHref}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Hablar con Valentina por WhatsApp"
+          className="group flex shrink-0 items-center gap-2 rounded-full border border-cyan-200/25 bg-cyan-300/10 p-1.5 pr-3 text-white shadow-[0_16px_42px_rgba(0,199,230,0.14)] transition hover:-translate-y-0.5 hover:border-cyan-200/50 hover:bg-cyan-300/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 sm:gap-3 sm:pr-4"
+        >
+          <Image
+            src="/images/agents-v2/valentina-web-v2.jpg"
+            alt="Valentina (IA)"
+            width={96}
+            height={96}
+            className="h-9 w-9 rounded-full object-cover object-top ring-1 ring-white/20 sm:h-10 sm:w-10"
+          />
+          <span className="text-left leading-tight">
+            <span className="hidden text-[0.68rem] font-medium uppercase tracking-[0.16em] text-cyan-200 sm:block">
+              Valentina (IA)
+            </span>
+            <span className="text-xs font-semibold sm:text-sm">Hablar con Valentina</span>
+          </span>
+        </a>
       </div>
     </header>
   );

@@ -1,6 +1,6 @@
-const whatsappNumber = "584122645002";
+const whatsappNumber = "584129097101";
 const whatsappMessage = encodeURIComponent(
-  "Hola, quiero agendar mi Diagnóstico Estratégico de IA para evaluar oportunidades concretas para mi empresa.",
+  "Hola Valentina, cuéntame cómo AgenteFactory podría ayudarme.",
 );
 
 export const siteConfig = {
@@ -28,6 +28,7 @@ export const siteConfig = {
   ],
   contact: {
     whatsappNumber,
+    whatsappMessage: "Hola Valentina, cuéntame cómo AgenteFactory podría ayudarme.",
     whatsappHref: `https://wa.me/${whatsappNumber}?text=${whatsappMessage}`,
     email: "bermudez.ferris@gmail.com",
   },

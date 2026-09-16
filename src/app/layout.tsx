@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { ValentinaWhatsAppCta } from "@/components/brand/valentina-whatsapp-cta";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -19,7 +20,10 @@ type RootLayoutProps = Readonly<{
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="es" className="h-full antialiased">
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        <ValentinaWhatsAppCta />
+      </body>
     </html>
   );
 }
