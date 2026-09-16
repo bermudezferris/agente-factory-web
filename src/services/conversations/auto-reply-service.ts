@@ -112,12 +112,32 @@ export class AutoReplyService {
       const currentAppointment = this.calendar
         ? await this.repository.getCurrentAppointment(conversation.contactId)
         : null;
-      const generated = await this.ai.generateReply({
-        memory: conversation.memory,
-        recentHistory: conversation.messages,
-        appointment: currentAppointment,
-        contactWaId: conversation.contactWaId,
-      });
+      let generated: Awaited<ReturnType<AiProvider["generateReply"]>>;
+      try {
+        generated = await this.ai.generateReply({
+          memory: conversation.memory,
+          recentHistory: conversation.messages,
+          appointment: currentAppointment,
+          contactWaId: conversation.contactWaId,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown AI generation error";
+        this.logger.error("ai_generation_error", { error: message, inboundMessageId: inbound.messageId });
+        if ((await this.repository.getConversationStatus(inbound.conversationId)) !== "AI_ACTIVE") {
+          await this.repository.failOutboundMessage(outboundMessageId, "conversation_state_changed");
+          return;
+        }
+        const fallback = "Estoy teniendo un pequeño inconveniente para procesar tu solicitud. Ya se lo paso al equipo para ayudarte por aquí.";
+        const whatsappMessageId = await this.whatsapp.sendText(
+          conversation.phoneNumberId,
+          conversation.contactWaId,
+          fallback,
+        );
+        await this.repository.completeOutboundMessage(outboundMessageId, whatsappMessageId, fallback);
+        await this.repository.transitionConversation(conversation.id, "HUMAN_REQUIRED");
+        this.logger.info("ai_generation_fallback_sent", { conversationId: conversation.id, messageId: outboundMessageId });
+        return;
+      }
       if ((await this.repository.getConversationStatus(inbound.conversationId)) !== "AI_ACTIVE") {
         await this.repository.failOutboundMessage(outboundMessageId, "conversation_state_changed");
         return;

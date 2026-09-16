@@ -190,11 +190,25 @@ describe("AutoReplyService", () => {
     expect(whatsapp.sendText).not.toHaveBeenCalled();
   });
 
-  it("marks the reserved outbound row failed when generation or delivery fails", async () => {
-    const { service, repository, ai } = setup();
+  it("sends a fallback and requests human help when AI generation fails", async () => {
+    const { service, repository, ai, whatsapp } = setup();
     vi.mocked(ai.generateReply).mockRejectedValueOnce(new Error("provider unavailable"));
     await service.process(inbound);
-    expect(repository.failOutboundMessage).toHaveBeenCalledWith("outbound", "provider unavailable");
+    expect(whatsapp.sendText).toHaveBeenCalledWith(
+      "phone-id",
+      "contact-wa-id",
+      expect.stringContaining("se lo paso al equipo"),
+    );
+    expect(repository.completeOutboundMessage).toHaveBeenCalledOnce();
+    expect(repository.transitionConversation).toHaveBeenCalledWith("conversation", "HUMAN_REQUIRED");
+    expect(repository.failOutboundMessage).not.toHaveBeenCalled();
+  });
+
+  it("marks the reserved outbound row failed when Meta delivery fails", async () => {
+    const { service, repository, whatsapp } = setup();
+    vi.mocked(whatsapp.sendText).mockRejectedValueOnce(new Error("Meta unavailable"));
+    await service.process(inbound);
+    expect(repository.failOutboundMessage).toHaveBeenCalledWith("outbound", "Meta unavailable");
   });
 
   it("keeps a sent reply successful when the later memory update fails", async () => {
