@@ -117,6 +117,22 @@ describe("WhatsApp webhook controller", () => {
     });
   });
 
+  it("notifies the human console after persisting a new inbound message", async () => {
+    const repository = new MemoryRepository();
+    const humanConsoleNotifier = {
+      alertHumanRequired: vi.fn(),
+      notifyInboundDuringHumanActive: vi.fn().mockResolvedValue(undefined),
+    };
+    const deps = { ...dependencies(repository), humanConsoleNotifier };
+
+    const response = await handleWebhookReceipt(signedRequest(metaTextWebhook()), deps);
+
+    expect(response.status).toBe(200);
+    expect(humanConsoleNotifier.notifyInboundDuringHumanActive).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: "conversation-for-15551234567" }),
+    );
+  });
+
   it("is idempotent when Meta retries the same message", async () => {
     const repository = new MemoryRepository();
     const deps = dependencies(repository);

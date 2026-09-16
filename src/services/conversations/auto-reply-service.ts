@@ -8,6 +8,7 @@ import {
   type IngestResult,
 } from "@/repositories/conversation-repository";
 import type { Logger } from "@/utils/logger";
+import type { HumanConsoleNotifier } from "@/services/telegram/telegram-human-console";
 import {
   BookingSlotUnavailableError,
   type CalendarAvailability,
@@ -83,6 +84,7 @@ export class AutoReplyService {
     private readonly logger: Logger,
     private readonly calendar?: CalendarBookingClient,
     private readonly bookingConfig?: BookingConfig,
+    private readonly humanConsoleNotifier?: HumanConsoleNotifier,
   ) {}
 
   async process(inbound: IngestResult): Promise<void> {
@@ -135,6 +137,7 @@ export class AutoReplyService {
         );
         await this.repository.completeOutboundMessage(outboundMessageId, whatsappMessageId, fallback);
         await this.repository.transitionConversation(conversation.id, "HUMAN_REQUIRED");
+        await this.notifyHumanRequired(conversation.id, message, inbound.messageId);
         this.logger.info("ai_generation_fallback_sent", { conversationId: conversation.id, messageId: outboundMessageId });
         return;
       }
@@ -174,6 +177,7 @@ export class AutoReplyService {
       if (humanHandoffRequired) {
         await this.repository.transitionConversation(conversation.id, "HUMAN_REQUIRED");
         this.logger.info("ai_handoff_requested", { conversationId: conversation.id, reason: humanHandoffReason });
+        await this.notifyHumanRequired(conversation.id, humanHandoffReason, inbound.messageId);
       }
       if (memoryRelevant) {
         try {
@@ -202,6 +206,18 @@ export class AutoReplyService {
         }
       }
       this.logger.error("ai_reply_error", { error: message, inboundMessageId: inbound.messageId });
+    }
+  }
+
+  private async notifyHumanRequired(conversationId: string, reason: string, sourceMessageId: string): Promise<void> {
+    if (!this.humanConsoleNotifier) return;
+    try {
+      await this.humanConsoleNotifier.alertHumanRequired(conversationId, reason, sourceMessageId);
+    } catch (error) {
+      this.logger.error("telegram_handoff_alert_error", {
+        conversationId,
+        error: error instanceof Error ? error.message : "Unknown Telegram alert error",
+      });
     }
   }
 

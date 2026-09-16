@@ -15,6 +15,8 @@ export type AppEnv = {
   bookingDurationMinutes: number;
   bookingBufferMinutes: number;
   adminApiKey?: string;
+  telegramBotToken?: string;
+  telegramOperatorChatId?: string;
 };
 
 function required(name: string): string {
@@ -46,5 +48,7 @@ export function getAppEnv(): AppEnv {
     bookingDurationMinutes: Number(process.env.BOOKING_DURATION_MINUTES?.trim() || "25"),
     bookingBufferMinutes: Number(process.env.BOOKING_BUFFER_MINUTES?.trim() || "20"),
     adminApiKey: process.env.ADMIN_API_KEY?.trim() || undefined,
+    telegramBotToken: process.env.TELEGRAM_BOT_TOKEN?.trim() || undefined,
+    telegramOperatorChatId: process.env.TELEGRAM_OPERATOR_CHAT_ID?.trim() || undefined,
   };
 }

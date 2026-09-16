@@ -6,6 +6,7 @@ import { AutoReplyService } from "@/services/conversations/auto-reply-service";
 import type { WhatsAppClient } from "@/services/whatsapp/meta-whatsapp-client";
 import type { Logger } from "@/utils/logger";
 import type { CalendarBookingClient } from "@/services/calendar/google-calendar-booking-client";
+import type { HumanConsoleNotifier } from "@/services/telegram/telegram-human-console";
 
 const inbound: IngestResult = {
   organizationId: "org",
@@ -115,17 +116,22 @@ function setup(status: ConversationContext["status"] = "AI_ACTIVE", claimed = tr
     get: vi.fn(),
   } as unknown as CalendarBookingClient;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as Logger;
+  const humanConsole = {
+    alertHumanRequired: vi.fn().mockResolvedValue(undefined),
+    notifyInboundDuringHumanActive: vi.fn().mockResolvedValue(undefined),
+  } as HumanConsoleNotifier;
   return {
     repository,
     ai,
     whatsapp,
     calendar,
+    humanConsole,
     service: new AutoReplyService(repository, ai, whatsapp, logger, calendar, {
       calendarId: "bermudez.ferris@gmail.com",
       timeZone: "America/New_York",
       durationMinutes: 25,
       bufferMinutes: 20,
-    }),
+    }, humanConsole),
   };
 }
 
@@ -191,7 +197,7 @@ describe("AutoReplyService", () => {
   });
 
   it("sends a fallback and requests human help when AI generation fails", async () => {
-    const { service, repository, ai, whatsapp } = setup();
+    const { service, repository, ai, whatsapp, humanConsole } = setup();
     vi.mocked(ai.generateReply).mockRejectedValueOnce(new Error("provider unavailable"));
     await service.process(inbound);
     expect(whatsapp.sendText).toHaveBeenCalledWith(
@@ -201,6 +207,11 @@ describe("AutoReplyService", () => {
     );
     expect(repository.completeOutboundMessage).toHaveBeenCalledOnce();
     expect(repository.transitionConversation).toHaveBeenCalledWith("conversation", "HUMAN_REQUIRED");
+    expect(humanConsole.alertHumanRequired).toHaveBeenCalledWith(
+      "conversation",
+      "provider unavailable",
+      "inbound-message",
+    );
     expect(repository.failOutboundMessage).not.toHaveBeenCalled();
   });
 
@@ -223,7 +234,7 @@ describe("AutoReplyService", () => {
   });
 
   it("moves the conversation to HUMAN_REQUIRED after sending a handoff reply", async () => {
-    const { service, repository, ai, whatsapp } = setup();
+    const { service, repository, ai, whatsapp, humanConsole } = setup();
     vi.mocked(ai.generateReply).mockResolvedValueOnce({
       reply: "Esto prefiero pasárselo al equipo para darte una respuesta bien aterrizada.",
       memoryRelevant: false,
@@ -238,6 +249,11 @@ describe("AutoReplyService", () => {
     expect(whatsapp.sendText).toHaveBeenCalledOnce();
     expect(repository.completeOutboundMessage).toHaveBeenCalledOnce();
     expect(repository.transitionConversation).toHaveBeenCalledWith("conversation", "HUMAN_REQUIRED");
+    expect(humanConsole.alertHumanRequired).toHaveBeenCalledWith(
+      "conversation",
+      "El contacto solicitó una propuesta formal",
+      "inbound-message",
+    );
   });
 
   it("books directly, confirms by WhatsApp and remembers the appointment", async () => {

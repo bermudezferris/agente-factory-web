@@ -15,6 +15,7 @@ import {
   BOOKING_TIME_ZONE,
   GoogleCalendarBookingClient,
 } from "@/services/calendar/google-calendar-booking-client";
+import { getTelegramDependencies } from "@/server/telegram-dependencies";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +46,9 @@ function getDependencies(): WebhookDependencies {
           },
         )
       : undefined;
+  const humanConsoleNotifier = env.telegramBotToken && env.telegramOperatorChatId
+    ? getTelegramDependencies().service
+    : undefined;
 
   dependencies = {
     verifyToken: env.metaWebhookVerifyToken,
@@ -72,8 +76,10 @@ function getDependencies(): WebhookDependencies {
                   bufferMinutes: env.bookingBufferMinutes,
                 }
               : undefined,
+            humanConsoleNotifier,
           )
         : undefined,
+    humanConsoleNotifier,
   };
 
   logger.info("whatsapp_webhook_initialized", { directBookingEnabled: Boolean(calendar) });

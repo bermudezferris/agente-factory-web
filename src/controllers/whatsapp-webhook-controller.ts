@@ -2,6 +2,7 @@ import type { InboundMessageService } from "@/services/conversations/ingest-inbo
 import type { MetaWhatsAppAdapter } from "@/services/whatsapp/meta-whatsapp-adapter";
 import type { Logger } from "@/utils/logger";
 import type { AutoReplyService } from "@/services/conversations/auto-reply-service";
+import type { HumanConsoleNotifier } from "@/services/telegram/telegram-human-console";
 
 export type WebhookDependencies = {
   verifyToken: string;
@@ -10,6 +11,7 @@ export type WebhookDependencies = {
   ingestionService: InboundMessageService;
   logger: Logger;
   autoReplyService?: AutoReplyService;
+  humanConsoleNotifier?: HumanConsoleNotifier;
 };
 
 export function handleWebhookVerification(request: Request, dependencies: WebhookDependencies): Response {
@@ -68,6 +70,11 @@ export async function handleWebhookReceipt(
 
   try {
     const { results, ...summary } = await dependencies.ingestionService.ingest(parsed.messages);
+    if (dependencies.humanConsoleNotifier) {
+      for (const result of results) {
+        if (!result.duplicate) await dependencies.humanConsoleNotifier.notifyInboundDuringHumanActive(result);
+      }
+    }
     if (dependencies.autoReplyService) {
       for (const result of results) await dependencies.autoReplyService.process(result);
     } else {
