@@ -30,6 +30,7 @@ type BookingTimeProvenance = "CURRENT_MESSAGE" | "RECENT_CONTEXT" | "CONFIRMED_A
 const DATE_EVIDENCE = /\b(?:hoy|mañana|pasado mañana|lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado|domingo|\d{1,2}\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)|\d{1,2}[/-]\d{1,2})\b/i;
 const TIME_EVIDENCE = /\b(?:a\s+las?\s+\d{1,2}(?::\d{2})?|\d{1,2}:\d{2}|\d{1,2}\s*(?:a\.?\s*m\.?|p\.?\s*m\.?))\b/i;
 const BOOKING_CONTINUATION = /\b(?:agend|reserv|confirm|esa hora|ese día|ese dia|mi nombre|correo|email|empresa|sí|si|perfecto|listo)\b/i;
+const BOOKING_RESET = /\b(?:cancel|olvida|descarta|ya no|no quiero)\w*/i;
 
 function hasExplicitDateAndTime(value: string): boolean {
   return DATE_EVIDENCE.test(value) && TIME_EVIDENCE.test(value);
@@ -51,8 +52,13 @@ function bookingTimeProvenance(
 
   if (current && BOOKING_CONTINUATION.test(currentText)) {
     const currentTime = new Date(current.occurredAt).getTime();
+    const resetIndex = messages
+      .slice(0, currentIndex)
+      .map((message, index) => ({ message, index }))
+      .filter(({ message }) => message.content && BOOKING_RESET.test(message.content))
+      .at(-1)?.index ?? -1;
     const recentText = messages
-      .slice(Math.max(0, currentIndex - 6), currentIndex)
+      .slice(Math.max(resetIndex + 1, currentIndex - 6), currentIndex)
       .filter((message) =>
         message.direction === "INBOUND"
         && message.content

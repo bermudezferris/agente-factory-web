@@ -13,6 +13,7 @@ import type {
 } from "@/repositories/conversation-repository";
 import { AppointmentSlotConflictError } from "@/repositories/conversation-repository";
 import type { InboundTextMessage } from "@/types/whatsapp";
+import { stableContactMemory } from "@/policies/contact-memory-policy";
 
 type RpcRow = {
   organization_id: string;
@@ -138,7 +139,7 @@ export class SupabaseConversationRepository implements ConversationRepository {
       .maybeSingle();
     if (memoryError) throw new Error(`Contact memory lookup failed: ${memoryError.message}`, { cause: memoryError });
 
-    const contactMemory = memory
+    const contactMemory = stableContactMemory(memory
       ? {
           relevantClientData: stringList(memory.relevant_client_data),
           needsAndInterests: stringList(memory.needs_and_interests),
@@ -148,7 +149,7 @@ export class SupabaseConversationRepository implements ConversationRepository {
           humanHandoffNotes: stringList(memory.human_handoff_notes),
           previousConversationsSummary: memory.previous_conversations_summary ?? "",
         }
-      : emptyContactMemory();
+      : emptyContactMemory());
 
     return {
       id: row.id,
@@ -242,16 +243,17 @@ export class SupabaseConversationRepository implements ConversationRepository {
     sourceInteractionId: string;
     memory: ContactMemory;
   }): Promise<void> {
+    const memory = stableContactMemory(input.memory);
     const { error } = await this.client.rpc("merge_contact_memory", {
       p_contact_id: input.contactId,
       p_source_interaction_id: input.sourceInteractionId,
-      p_relevant_client_data: input.memory.relevantClientData,
-      p_needs_and_interests: input.memory.needsAndInterests,
-      p_agreements_and_commitments: input.memory.agreementsAndCommitments,
-      p_appointments_and_pending: input.memory.appointmentsAndPending,
-      p_important_objections: input.memory.importantObjections,
-      p_human_handoff_notes: input.memory.humanHandoffNotes,
-      p_previous_conversations_summary: input.memory.previousConversationsSummary,
+      p_relevant_client_data: memory.relevantClientData,
+      p_needs_and_interests: memory.needsAndInterests,
+      p_agreements_and_commitments: memory.agreementsAndCommitments,
+      p_appointments_and_pending: memory.appointmentsAndPending,
+      p_important_objections: memory.importantObjections,
+      p_human_handoff_notes: memory.humanHandoffNotes,
+      p_previous_conversations_summary: memory.previousConversationsSummary,
     });
     if (error) throw new Error(`Contact memory update failed: ${error.message}`, { cause: error });
   }
