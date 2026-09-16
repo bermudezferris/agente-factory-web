@@ -90,8 +90,13 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     expect(request.instructions).toContain("revisión silenciosa");
     expect(request.instructions).toContain("human_handoff_required=true");
     expect(request.instructions).toContain("Interpreta las horas propuestas sin zona explícita en America/Caracas");
-    expect(request.max_output_tokens).toBe(4000);
-    expect(request.prompt_cache_key).toBe("agentefactory-valentina-reception-v1");
+    expect(request.max_output_tokens).toBe(3000);
+    expect(request.prompt_cache_key).toBe("agentefactory-valentina-reception-v2");
+    expect(request.instructions).toContain("una sola respuesta final compacta por turno");
+    expect(request.instructions).toContain("por debajo de 300 caracteres");
+    expect(request.instructions).toContain("una sola pregunta o CTA principal");
+    expect(request.instructions).toContain("No repitas duración, gratuidad, consultor Senior");
+    expect(request.instructions).toContain("Si pregunta “¿Cuándo podemos hacer una videollamada?”");
     expect(request.text.verbosity).toBe("low");
     expect(request.input).toEqual([{ role: "user", content: "¿Podemos confirmar la reunión?" }]);
     expect(request.text.format.type).toBe("json_schema");

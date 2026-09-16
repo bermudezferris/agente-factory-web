@@ -135,12 +135,14 @@ describe("WhatsApp webhook controller", () => {
 
   it("is idempotent when Meta retries the same message", async () => {
     const repository = new MemoryRepository();
-    const deps = dependencies(repository);
+    const autoReplyService = { process: vi.fn().mockResolvedValue(undefined) };
+    const deps = { ...dependencies(repository), autoReplyService } as unknown as WebhookDependencies;
 
     await handleWebhookReceipt(signedRequest(metaTextWebhook()), deps);
     const retry = await handleWebhookReceipt(signedRequest(metaTextWebhook()), deps);
 
     expect(repository.messages.size).toBe(1);
+    expect(autoReplyService.process).toHaveBeenCalledOnce();
     expect(await retry.json()).toEqual({ received: true, processed: 0, duplicates: 1 });
   });
 

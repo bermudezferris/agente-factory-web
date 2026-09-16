@@ -76,7 +76,9 @@ export async function handleWebhookReceipt(
       }
     }
     if (dependencies.autoReplyService) {
-      for (const result of results) await dependencies.autoReplyService.process(result);
+      for (const result of results) {
+        if (!result.duplicate) await dependencies.autoReplyService.process(result);
+      }
     } else {
       dependencies.logger.info("ai_reply_disabled", { reason: "missing_configuration" });
     }

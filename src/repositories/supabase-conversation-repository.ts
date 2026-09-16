@@ -39,6 +39,13 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function deterministicUuid(value: string): string {
+  const hex = createHash("sha256").update(value).digest("hex").slice(0, 32).split("");
+  hex[12] = "5";
+  hex[16] = ((Number.parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8).join("")}-${hex.slice(8, 12).join("")}-${hex.slice(12, 16).join("")}-${hex.slice(16, 20).join("")}-${hex.slice(20).join("")}`;
+}
+
 function mapAppointment(row: Record<string, unknown>): Appointment {
   return {
     id: row.id as string,
@@ -181,9 +188,11 @@ export class SupabaseConversationRepository implements ConversationRepository {
     senderType: "AI_AGENT" | "HUMAN";
   }): Promise<OutboundClaim> {
     const key = createHash("sha256").update(input.idempotencyKey).digest("hex");
+    const messageId = deterministicUuid(`outbound:${input.idempotencyKey}`);
     const { data, error } = await this.client
       .from("messages")
       .insert({
+        id: messageId,
         organization_id: input.conversation.organizationId,
         whatsapp_channel_id: input.conversation.channelId,
         conversation_id: input.conversation.id,
@@ -197,7 +206,7 @@ export class SupabaseConversationRepository implements ConversationRepository {
         whatsapp_message_id: `pending:${key}`,
         occurred_at: new Date().toISOString(),
         status: "SENT",
-        metadata: { delivery_state: "pending" },
+        metadata: { delivery_state: "pending", source_interaction_id: input.idempotencyKey },
       })
       .select("id")
       .single();
