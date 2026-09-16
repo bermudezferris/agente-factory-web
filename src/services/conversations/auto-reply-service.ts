@@ -25,6 +25,65 @@ type BookingConfig = {
   bufferMinutes: number;
 };
 
+type BookingTimeProvenance = "CURRENT_MESSAGE" | "RECENT_CONTEXT" | "CONFIRMED_APPOINTMENT";
+
+const DATE_EVIDENCE = /\b(?:hoy|mañana|pasado mañana|lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado|domingo|\d{1,2}\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)|\d{1,2}[/-]\d{1,2})\b/i;
+const TIME_EVIDENCE = /\b(?:a\s+las?\s+\d{1,2}(?::\d{2})?|\d{1,2}:\d{2}|\d{1,2}\s*(?:a\.?\s*m\.?|p\.?\s*m\.?))\b/i;
+const BOOKING_CONTINUATION = /\b(?:agend|reserv|confirm|esa hora|ese día|ese dia|mi nombre|correo|email|empresa|sí|si|perfecto|listo)\b/i;
+
+function hasExplicitDateAndTime(value: string): boolean {
+  return DATE_EVIDENCE.test(value) && TIME_EVIDENCE.test(value);
+}
+
+function hasSpecificDateOrTime(value: string): boolean {
+  return DATE_EVIDENCE.test(value) || TIME_EVIDENCE.test(value);
+}
+
+function bookingTimeProvenance(
+  messages: Awaited<ReturnType<ConversationRepository["getConversationContext"]>>["messages"],
+  inboundMessageId: string,
+  appointment: Appointment | null,
+): BookingTimeProvenance | null {
+  const currentIndex = messages.findIndex((message) => message.id === inboundMessageId);
+  const current = currentIndex >= 0 ? messages[currentIndex] : undefined;
+  const currentText = current?.content ?? "";
+  if (hasExplicitDateAndTime(currentText)) return "CURRENT_MESSAGE";
+
+  if (current && BOOKING_CONTINUATION.test(currentText)) {
+    const currentTime = new Date(current.occurredAt).getTime();
+    const recentText = messages
+      .slice(Math.max(0, currentIndex - 6), currentIndex)
+      .filter((message) =>
+        message.direction === "INBOUND"
+        && message.content
+        && currentTime - new Date(message.occurredAt).getTime() <= 30 * 60 * 1000,
+      )
+      .map((message) => message.content)
+      .join(" ");
+    if (hasExplicitDateAndTime(`${recentText} ${currentText}`)) return "RECENT_CONTEXT";
+  }
+
+  if (
+    appointment?.status === "BOOKED"
+    && appointment.calendarEventId
+    && /\b(?:cita|diagnóstico|diagnostico|agend|reserv|reprogram|cancel|cuándo|cuando|hora)\b/i.test(currentText)
+  ) {
+    return "CONFIRMED_APPOINTMENT";
+  }
+  return null;
+}
+
+function removeUnsupportedTemporalMemory(memory: ContactMemory, previousSummary: string): ContactMemory {
+  const withoutSlots = (items: string[]) => items.filter((item) => !hasSpecificDateOrTime(item));
+  return {
+    ...memory,
+    relevantClientData: withoutSlots(memory.relevantClientData),
+    agreementsAndCommitments: withoutSlots(memory.agreementsAndCommitments),
+    appointmentsAndPending: withoutSlots(memory.appointmentsAndPending),
+    previousConversationsSummary: previousSummary,
+  };
+}
+
 function formatDate(value: string, timeZone: string): string {
   return new Intl.DateTimeFormat("es-VE", {
     timeZone,
@@ -178,6 +237,36 @@ export class AutoReplyService {
       let humanHandoffReason = generated.humanHandoffReason;
       let memoryRelevant = generated.memoryRelevant;
       let memoryUpdate = generated.memoryUpdate;
+
+      const timeProvenance = bookingTimeProvenance(
+        conversation.messages,
+        inbound.messageId,
+        currentAppointment,
+      );
+      const generatedSlot = generated.appointmentRequest?.requestedStart;
+      const unsupportedSlot = Boolean(generatedSlot && !timeProvenance);
+      const unsupportedReplyTime = !timeProvenance && hasSpecificDateOrTime(reply);
+      if (unsupportedSlot || unsupportedReplyTime) {
+        this.logger.warn("booking_time_provenance_rejected", {
+          conversationId: conversation.id,
+          inboundMessageId: inbound.messageId,
+        });
+        reply = "¿Qué día y hora te vienen bien?";
+        generated.appointmentRequest = null;
+        memoryUpdate = removeUnsupportedTemporalMemory(
+          memoryUpdate,
+          conversation.memory.previousConversationsSummary,
+        );
+        memoryRelevant = memoryRelevant && Object.values(memoryUpdate).some((value) =>
+          Array.isArray(value) ? value.length > 0 : value !== conversation.memory.previousConversationsSummary,
+        );
+      } else if (timeProvenance) {
+        this.logger.info("booking_time_provenance_accepted", {
+          conversationId: conversation.id,
+          inboundMessageId: inbound.messageId,
+          provenance: timeProvenance,
+        });
+      }
 
       if (generated.appointmentRequest) {
         const handled = await this.handleAppointmentAction(

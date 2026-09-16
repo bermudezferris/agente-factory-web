@@ -97,6 +97,7 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     expect(request.instructions).toContain("una sola pregunta o CTA principal");
     expect(request.instructions).toContain("No repitas duración, gratuidad, consultor Senior");
     expect(request.instructions).toContain("Si pregunta “¿Cuándo podemos hacer una videollamada?”");
+    expect(request.instructions).toContain("Una solicitud antigua o pendiente guardada en memoria no autoriza reutilizar ese horario");
     expect(request.text.verbosity).toBe("low");
     expect(request.input).toEqual([{ role: "user", content: "¿Podemos confirmar la reunión?" }]);
     expect(request.text.format.type).toBe("json_schema");
