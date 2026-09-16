@@ -9,6 +9,7 @@ import {
 } from "@/repositories/conversation-repository";
 import type { Logger } from "@/utils/logger";
 import type { HumanConsoleNotifier } from "@/services/telegram/telegram-human-console";
+import { isExplicitHumanRequest } from "@/services/conversations/human-request-detector";
 import {
   BookingSlotUnavailableError,
   type CalendarAvailability,
@@ -91,6 +92,32 @@ export class AutoReplyService {
     let outboundMessageId: string | undefined;
     try {
       const conversation = await this.repository.getConversationContext(inbound.conversationId);
+      if (
+        ["AI_ACTIVE", "HUMAN_REQUIRED"].includes(conversation.status)
+        && isExplicitHumanRequest(conversation.messages, inbound.messageId)
+      ) {
+        const claim = await this.repository.claimOutboundMessage({
+          conversation,
+          idempotencyKey: `human-request:${inbound.messageId}`,
+          senderType: "AI_AGENT",
+        });
+        if (!claim.claimed || !claim.messageId) return;
+        outboundMessageId = claim.messageId;
+        const reason = "El contacto pidió hablar directamente con una persona del equipo.";
+        if (conversation.status === "AI_ACTIVE") {
+          await this.repository.transitionConversation(conversation.id, "HUMAN_REQUIRED");
+        }
+        await this.notifyHumanRequired(conversation.id, reason, inbound.messageId);
+        const acknowledgement = "Claro. Ya le avisé al equipo para que puedan continuar contigo directamente por aquí.";
+        const whatsappMessageId = await this.whatsapp.sendText(
+          conversation.phoneNumberId,
+          conversation.contactWaId,
+          acknowledgement,
+        );
+        await this.repository.completeOutboundMessage(claim.messageId, whatsappMessageId, acknowledgement);
+        this.logger.info("human_request_fast_path", { conversationId: conversation.id });
+        return;
+      }
       if (conversation.status !== "AI_ACTIVE") {
         this.logger.info("ai_reply_skipped", { conversationId: conversation.id, status: conversation.status });
         return;

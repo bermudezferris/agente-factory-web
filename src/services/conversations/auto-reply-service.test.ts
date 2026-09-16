@@ -136,6 +136,71 @@ function setup(status: ConversationContext["status"] = "AI_ACTIVE", claimed = tr
 }
 
 describe("AutoReplyService", () => {
+  it.each([
+    "quiero hablar con Alejandro",
+    "quiero hablar con el asesor",
+    "me puedes comunicar con el asesor?",
+    "quisiera hablar con una persona",
+    "quiero chatear con alguien",
+    "pásame con un consultor",
+    "necesito hablar con alguien del equipo",
+    "quiero hablar con el asesor antes del diagnóstico",
+  ])("uses the deterministic handoff fast path for: %s", async (content) => {
+    const { service, repository, ai, whatsapp, humanConsole } = setup();
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context(),
+      messages: [{ ...context().messages[0], content }],
+    });
+
+    await service.process(inbound);
+
+    expect(ai.generateReply).not.toHaveBeenCalled();
+    expect(repository.transitionConversation).toHaveBeenCalledWith("conversation", "HUMAN_REQUIRED");
+    expect(humanConsole.alertHumanRequired).toHaveBeenCalledWith(
+      "conversation",
+      "El contacto pidió hablar directamente con una persona del equipo.",
+      "inbound-message",
+    );
+    expect(whatsapp.sendText).toHaveBeenCalledWith(
+      "phone-id",
+      "contact-wa-id",
+      expect.stringContaining("Ya le avisé al equipo"),
+    );
+  });
+
+  it.each([
+    "el asesor me explicó algo ayer",
+    "quiero saber qué hace un asesor",
+    "¿el diagnóstico lo hace un consultor?",
+  ])("does not fast-path a non-request mention: %s", async (content) => {
+    const { service, repository, ai, humanConsole } = setup();
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context(),
+      messages: [{ ...context().messages[0], content }],
+    });
+
+    await service.process(inbound);
+
+    expect(ai.generateReply).toHaveBeenCalledOnce();
+    expect(repository.transitionConversation).not.toHaveBeenCalledWith("conversation", "HUMAN_REQUIRED");
+    expect(humanConsole.alertHumanRequired).not.toHaveBeenCalled();
+  });
+
+  it("acknowledges and re-alerts an explicit request already in HUMAN_REQUIRED", async () => {
+    const { service, repository, ai, whatsapp, humanConsole } = setup("HUMAN_REQUIRED");
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context("HUMAN_REQUIRED"),
+      messages: [{ ...context().messages[0], content: "me puedes comunicar con el asesor?" }],
+    });
+
+    await service.process(inbound);
+
+    expect(ai.generateReply).not.toHaveBeenCalled();
+    expect(repository.transitionConversation).not.toHaveBeenCalled();
+    expect(humanConsole.alertHumanRequired).toHaveBeenCalledOnce();
+    expect(whatsapp.sendText).toHaveBeenCalledOnce();
+  });
+
   it("loads history, sends through Meta and persists the returned WhatsApp ID", async () => {
     const { service, repository, ai, whatsapp } = setup();
     await service.process(inbound);
