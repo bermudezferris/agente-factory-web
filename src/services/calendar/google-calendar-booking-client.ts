@@ -60,8 +60,17 @@ export type CalendarAvailability = {
   reason: string | null;
 };
 
+export type CalendarSlotSearch = {
+  from?: string | null;
+  to?: string | null;
+  dayPart?: "ANY" | "MORNING" | "AFTERNOON" | "EARLIEST";
+  exclude?: string[];
+  count?: number;
+};
+
 export interface CalendarBookingClient {
   checkAvailability(requestedStart: string): Promise<CalendarAvailability>;
+  findAvailableSlots(search?: CalendarSlotSearch): Promise<string[]>;
   create(input: CalendarEventInput): Promise<CalendarReservation>;
   reschedule(eventId: string, input: CalendarEventInput): Promise<CalendarReservation>;
   cancel(eventId: string): Promise<void>;
@@ -228,12 +237,19 @@ export class GoogleCalendarBookingClient implements CalendarBookingClient {
     });
   }
 
-  private async alternativesNear(requested: Date, accessToken: string, count = 3): Promise<string[]> {
+  private async alternativesNear(
+    requested: Date,
+    accessToken: string,
+    count = 3,
+    options: Pick<CalendarSlotSearch, "to" | "dayPart" | "exclude"> = {},
+  ): Promise<string[]> {
     const now = new Date();
     const searchStart = new Date(Math.max(requested.getTime(), now.getTime() + this.schedule.minLeadHours * 3600000));
     searchStart.setUTCSeconds(0, 0);
     searchStart.setUTCMinutes(Math.ceil(searchStart.getUTCMinutes() / 5) * 5);
+    const requestedEnd = options.to ? new Date(options.to).getTime() : Number.POSITIVE_INFINITY;
     const searchEnd = new Date(Math.min(
+      requestedEnd,
       searchStart.getTime() + 14 * 24 * 3600000,
       now.getTime() + this.schedule.maxAdvanceDays * 24 * 3600000,
     ));
@@ -243,14 +259,31 @@ export class GoogleCalendarBookingClient implements CalendarBookingClient {
       accessToken,
     );
     const alternatives: string[] = [];
+    const excluded = new Set((options.exclude ?? []).map((value) => new Date(value).toISOString()));
     for (let timestamp = searchStart.getTime(); timestamp <= searchEnd.getTime(); timestamp += 5 * 60000) {
       const start = new Date(timestamp);
       if (!isScheduleSlot(start, this.schedule, now)) continue;
+      const { minutes } = localParts(start, this.schedule.timeZone);
+      if (options.dayPart === "MORNING" && minutes >= 12 * 60) continue;
+      if (options.dayPart === "AFTERNOON" && minutes < 12 * 60) continue;
+      if (excluded.has(start.toISOString())) continue;
       const end = new Date(timestamp + this.schedule.durationMinutes * 60000);
       if (!overlapsBusy(start, end, busy, this.schedule.bufferMinutes)) alternatives.push(start.toISOString());
       if (alternatives.length === count) break;
     }
     return alternatives;
+  }
+
+  async findAvailableSlots(search: CalendarSlotSearch = {}): Promise<string[]> {
+    const now = new Date();
+    const from = search.from ? new Date(search.from) : now;
+    if (Number.isNaN(from.getTime())) throw new BookingSlotUnavailableError("La fecha de búsqueda no es válida");
+    return this.alternativesNear(
+      from,
+      await this.accessToken(),
+      search.count ?? 8,
+      search,
+    );
   }
 
   async checkAvailability(requestedStart: string): Promise<CalendarAvailability> {

@@ -96,7 +96,7 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     expect(request.instructions).toContain("por debajo de 300 caracteres");
     expect(request.instructions).toContain("una sola pregunta o CTA principal");
     expect(request.instructions).toContain("No repitas duración, gratuidad, consultor Senior");
-    expect(request.instructions).toContain("Si pregunta “¿Cuándo podemos hacer una videollamada?”");
+      expect(request.instructions).toContain("¿Cuándo podemos hacer una videollamada?”, usa SUGGEST");
     expect(request.instructions).toContain("Una solicitud antigua o pendiente guardada en memoria no autoriza reutilizar ese horario");
     expect(request.instructions).toContain("Nunca guardes en memoria persistente fechas u horas tentativas");
     expect(request.instructions).toContain("Te entusiasma genuinamente el potencial de la inteligencia artificial");
@@ -168,6 +168,8 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     const request = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(request.instructions).toContain("nunca debe salir de WhatsApp");
     expect(request.instructions).toContain("appointment_requested_start");
+    expect(request.instructions).toContain("SUGGEST: el contacto quiere agendar");
+    expect(request.instructions).toContain("Nunca pidas nombre, correo o empresa antes de resolver el horario");
     expect(request.instructions).not.toContain("https://calendar.app.google/");
     expect(result.appointmentRequest).toEqual({
       action: "BOOK",
@@ -177,6 +179,8 @@ describe("OpenAIResponsesProvider persistent memory", () => {
       attendeeEmail: "maria@example.com",
       company: "Acme",
       reason: "Automatizar soporte",
+      availabilityDate: null,
+      dayPart: "ANY",
     });
   });
 });

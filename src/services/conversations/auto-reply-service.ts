@@ -40,6 +40,21 @@ function hasSpecificDateOrTime(value: string): boolean {
   return DATE_EVIDENCE.test(value) || TIME_EVIDENCE.test(value);
 }
 
+function supportsAvailabilityDate(value: string): boolean {
+  const withoutDayPart = value.replace(/\b(?:por\s+la\s+mañana|en\s+la\s+mañana)\b/gi, "");
+  return DATE_EVIDENCE.test(withoutDayPart);
+}
+
+function supportedDayPart(
+  value: string,
+  requested: "ANY" | "MORNING" | "AFTERNOON" | "EARLIEST" | undefined,
+): "ANY" | "MORNING" | "AFTERNOON" | "EARLIEST" {
+  if (requested === "MORNING" && /\b(?:por\s+la\s+mañana|en\s+la\s+mañana)\b/i.test(value)) return requested;
+  if (requested === "AFTERNOON" && /\b(?:tarde|después\s+de\s+almuerzo|despues\s+de\s+almuerzo)\b/i.test(value)) return requested;
+  if (requested === "EARLIEST" && /\b(?:más\s+temprano|mas\s+temprano|primera\s+hora)\b/i.test(value)) return requested;
+  return "ANY";
+}
+
 function bookingTimeProvenance(
   messages: Awaited<ReturnType<ConversationRepository["getConversationContext"]>>["messages"],
   inboundMessageId: string,
@@ -106,11 +121,32 @@ function alternativesReply(availability: CalendarAvailability, timeZone: string)
   if (availability.alternatives.length === 0) {
     return "Ese horario no está disponible. Dime qué otro día te funciona y reviso opciones reales de una vez.";
   }
-  const alternatives = availability.alternatives.map((slot) => formatDate(slot, timeZone));
+  const alternatives = availability.alternatives.slice(0, 2).map((slot) => formatDate(slot, timeZone));
   const list = alternatives.length === 1
     ? alternatives[0]
     : `${alternatives.slice(0, -1).join(", ")} o ${alternatives.at(-1)}`;
   return `Ese horario ya no está disponible, pero tengo ${list}. ¿Cuál te funciona mejor?`;
+}
+
+function pickDifferentiatedSlots(slots: string[]): string[] {
+  if (slots.length <= 1) return slots;
+  const first = slots[0];
+  const separated = slots.find((slot) => new Date(slot).getTime() - new Date(first).getTime() >= 2 * 60 * 60 * 1000);
+  return [first, separated ?? slots[1]];
+}
+
+function offeredSlotsReply(slots: string[], timeZone: string): string {
+  if (slots.length === 0) return "No encontré un espacio cercano que cumpla el horario. ¿Prefieres mañana o tarde para ampliar la búsqueda?";
+  const labels = slots.map((slot) => formatDate(slot, timeZone));
+  if (labels.length === 1) return `Tengo libre ${labels[0]} 😊 ¿Te funciona?`;
+  return `¡De una! 😊 Tengo libre ${labels[0]} o ${labels[1]}. ¿Cuál te funciona mejor?`;
+}
+
+function dateSearchRange(date: string | null | undefined): { from?: string; to?: string } {
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return {};
+  const from = new Date(`${date}T00:00:00-04:00`);
+  if (Number.isNaN(from.getTime())) return {};
+  return { from: from.toISOString(), to: new Date(from.getTime() + 24 * 60 * 60 * 1000).toISOString() };
 }
 
 function bookedReply(
@@ -251,7 +287,18 @@ export class AutoReplyService {
       );
       const generatedSlot = generated.appointmentRequest?.requestedStart;
       const unsupportedSlot = Boolean(generatedSlot && !timeProvenance);
-      const unsupportedReplyTime = !timeProvenance && hasSpecificDateOrTime(reply);
+      const isSuggestion = generated.appointmentRequest?.action === "SUGGEST";
+      if (isSuggestion && generated.appointmentRequest) {
+        const currentText = conversation.messages.find((message) => message.id === inbound.messageId)?.content ?? "";
+        if (generated.appointmentRequest.availabilityDate && !supportsAvailabilityDate(currentText)) {
+          generated.appointmentRequest.availabilityDate = null;
+        }
+        generated.appointmentRequest.dayPart = supportedDayPart(
+          currentText,
+          generated.appointmentRequest.dayPart,
+        );
+      }
+      const unsupportedReplyTime = !isSuggestion && !timeProvenance && hasSpecificDateOrTime(reply);
       if (unsupportedSlot || unsupportedReplyTime) {
         this.logger.warn("booking_time_provenance_rejected", {
           conversationId: conversation.id,
@@ -394,6 +441,26 @@ export class AutoReplyService {
         };
       }
 
+      if (action === "SUGGEST") {
+        const excluded = await this.repository.getRecentOfferedSlots(conversation.id);
+        const range = dateSearchRange(request.availabilityDate);
+        const candidates = await this.calendar.findAvailableSlots({
+          ...range,
+          dayPart: request.dayPart ?? "ANY",
+          exclude: excluded,
+          count: 12,
+        });
+        const slots = pickDifferentiatedSlots(candidates).slice(0, 2);
+        if (slots.length > 0) {
+          await this.repository.recordOfferedSlots({
+            conversation,
+            sourceInteractionId: inbound.messageId,
+            slots,
+          });
+        }
+        return unchanged(offeredSlotsReply(slots, request.timezone ?? this.bookingConfig.timeZone));
+      }
+
       if (!request.requestedStart) return unchanged("¿Qué día, hora y zona horaria te funcionan?");
 
       if (action === "CHECK") {
@@ -504,7 +571,7 @@ export class AutoReplyService {
         error: error instanceof Error ? error.message : "Unknown calendar error",
       });
       return {
-        ...unchanged("Estoy teniendo un pequeño problema para confirmar el calendario. Dame un momento y te ayudo con eso."),
+        ...unchanged("Déjame revisar bien la agenda antes de darte una hora que no sea 😅."),
         humanHandoffRequired: true,
         humanHandoffReason: `Falló la acción ${action} en Google Calendar`,
       };

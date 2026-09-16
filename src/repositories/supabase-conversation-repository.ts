@@ -272,6 +272,38 @@ export class SupabaseConversationRepository implements ConversationRepository {
     return data ? mapAppointment(data as Record<string, unknown>) : null;
   }
 
+  async getRecentOfferedSlots(conversationId: string): Promise<string[]> {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await this.client
+      .from("conversation_events")
+      .select("metadata")
+      .eq("conversation_id", conversationId)
+      .eq("event_type", "BOOKING_SLOTS_OFFERED")
+      .gte("created_at", cutoff)
+      .order("created_at", { ascending: false })
+      .limit(5);
+    if (error) throw new Error(`Offered slots lookup failed: ${error.message}`, { cause: error });
+    return (data ?? []).flatMap((event) => {
+      const slots = (event.metadata as { slots?: unknown } | null)?.slots;
+      return Array.isArray(slots) ? slots.filter((slot): slot is string => typeof slot === "string") : [];
+    });
+  }
+
+  async recordOfferedSlots(input: {
+    conversation: ConversationContext;
+    sourceInteractionId: string;
+    slots: string[];
+  }): Promise<void> {
+    const { error } = await this.client.from("conversation_events").insert({
+      organization_id: input.conversation.organizationId,
+      conversation_id: input.conversation.id,
+      event_type: "BOOKING_SLOTS_OFFERED",
+      actor_type: "AI_AGENT",
+      metadata: { slots: input.slots, source_interaction_id: input.sourceInteractionId },
+    });
+    if (error) throw new Error(`Offered slots persistence failed: ${error.message}`, { cause: error });
+  }
+
   async createAppointmentHold(input: Omit<Appointment, "id" | "calendarEventId" | "status"> & {
     sourceInteractionId: string;
   }): Promise<Appointment> {

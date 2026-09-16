@@ -107,6 +107,12 @@ export interface ConversationRepository {
     memory: ContactMemory;
   }): Promise<void>;
   getCurrentAppointment(contactId: string): Promise<Appointment | null>;
+  getRecentOfferedSlots(conversationId: string): Promise<string[]>;
+  recordOfferedSlots(input: {
+    conversation: ConversationContext;
+    sourceInteractionId: string;
+    slots: string[];
+  }): Promise<void>;
   createAppointmentHold(input: Omit<Appointment, "id" | "calendarEventId" | "status"> & {
     sourceInteractionId: string;
   }): Promise<Appointment>;
