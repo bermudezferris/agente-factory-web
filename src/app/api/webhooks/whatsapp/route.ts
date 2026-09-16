@@ -11,7 +11,10 @@ import { logger } from "@/utils/logger";
 import { AutoReplyService } from "@/services/conversations/auto-reply-service";
 import { OpenAIResponsesProvider } from "@/services/ai/openai-responses-provider";
 import { MetaWhatsAppClient } from "@/services/whatsapp/meta-whatsapp-client";
-import { GoogleCalendarBookingClient } from "@/services/calendar/google-calendar-booking-client";
+import {
+  BOOKING_TIME_ZONE,
+  GoogleCalendarBookingClient,
+} from "@/services/calendar/google-calendar-booking-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,7 +37,7 @@ function getDependencies(): WebhookDependencies {
           env.googleRefreshToken,
           env.googleCalendarId,
           {
-            timeZone: "America/New_York",
+            timeZone: BOOKING_TIME_ZONE,
             durationMinutes: env.bookingDurationMinutes,
             bufferMinutes: env.bookingBufferMinutes,
             minLeadHours: 4,
@@ -64,7 +67,7 @@ function getDependencies(): WebhookDependencies {
             calendar && env.googleCalendarId
               ? {
                   calendarId: env.googleCalendarId,
-                  timeZone: "America/New_York",
+                  timeZone: BOOKING_TIME_ZONE,
                   durationMinutes: env.bookingDurationMinutes,
                   bufferMinutes: env.bookingBufferMinutes,
                 }

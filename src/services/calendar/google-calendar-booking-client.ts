@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 
-export const BOOKING_TIME_ZONE = "America/New_York";
+export const BOOKING_TIME_ZONE = "America/Caracas";
 export const BOOKING_MIN_LEAD_HOURS = 4;
 export const BOOKING_MAX_ADVANCE_DAYS = 60;
 
