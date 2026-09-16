@@ -86,6 +86,8 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     expect(request.instructions).toContain("nunca debe salir de WhatsApp");
     expect(request.instructions).toContain("español venezolano profesional");
     expect(request.instructions).toContain("No uses voseo");
+    expect(request.instructions).toContain("Evita como apertura habitual “de una”, “dale”, “tranqui”, “full”");
+    expect(request.instructions).toContain("Prefiere “¡Claro! 😊”, “Perfecto”, “Buenísimo”");
     expect(request.instructions).toContain("tienes, quieres, puedes, dime, cuéntame y haces");
     expect(request.instructions).toContain("revisión silenciosa");
     expect(request.instructions).toContain("human_handoff_required=true");
@@ -107,6 +109,7 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     expect(request.instructions).toContain("tono robótico o corporativo");
     expect(request.instructions).toContain("Si el contacto está molesto");
     expect(request.instructions).toContain("no respondas “Buenísimo”");
+    expect(request.instructions).toContain("Un saludo aislado como hola, buenas, buen día, hey o qué tal nunca retoma agenda");
     expect(request.instructions).toContain("Tenemos tres clínicas");
     expect(request.instructions).toContain("Recibimos demasiados mensajes");
     expect(request.instructions).toContain("Quiero saber cuánto cuesta");

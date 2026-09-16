@@ -40,7 +40,7 @@ function context(status: ConversationContext["status"] = "AI_ACTIVE"): Conversat
       previousConversationsSummary: "El cliente consultó sobre automatización.",
     },
     messages: [
-      { id: "inbound-message", direction: "INBOUND", senderType: "CONTACT", content: "Hola", occurredAt: "2026-09-14T00:00:00Z", status: "RECEIVED" },
+      { id: "inbound-message", direction: "INBOUND", senderType: "CONTACT", content: "Necesito información", occurredAt: "2026-09-14T00:00:00Z", status: "RECEIVED" },
     ],
   };
 }
@@ -76,6 +76,7 @@ function setup(status: ConversationContext["status"] = "AI_ACTIVE", claimed = tr
     mergeContactMemory: vi.fn().mockResolvedValue(undefined),
     getCurrentAppointment: vi.fn().mockResolvedValue(null),
     getRecentOfferedSlots: vi.fn().mockResolvedValue([]),
+    clearRecentOfferedSlots: vi.fn().mockResolvedValue(undefined),
     recordOfferedSlots: vi.fn().mockResolvedValue(undefined),
     createAppointmentHold: vi.fn().mockResolvedValue({ id: "appointment-hold" }),
     markAppointmentBooked: vi.fn().mockResolvedValue(undefined),
@@ -142,6 +143,82 @@ function setup(status: ConversationContext["status"] = "AI_ACTIVE", claimed = tr
 }
 
 describe("AutoReplyService", () => {
+  it("answers a greeting briefly and invalidates stale booking slots without Calendar or OpenAI", async () => {
+    const { service, repository, ai, calendar, whatsapp } = setup();
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context(),
+      memory: {
+        ...context().memory,
+        appointmentsAndPending: ["Horario tentativo antiguo"],
+      },
+      messages: [{ ...context().messages[0], content: "hola" }],
+    });
+    vi.mocked(repository.getRecentOfferedSlots).mockResolvedValueOnce([
+      "2026-09-17T13:00:00.000Z",
+      "2026-09-17T15:30:00.000Z",
+    ]);
+
+    await service.process(inbound);
+
+    expect(ai.generateReply).not.toHaveBeenCalled();
+    expect(calendar.findAvailableSlots).not.toHaveBeenCalled();
+    expect(calendar.checkAvailability).not.toHaveBeenCalled();
+    expect(whatsapp.sendText).toHaveBeenCalledOnce();
+    expect(whatsapp.sendText).toHaveBeenCalledWith("phone-id", "contact-wa-id", "¡Hola! 😊 ¿Cómo te puedo ayudar?");
+    expect(repository.clearRecentOfferedSlots).toHaveBeenCalledWith(expect.objectContaining({
+      reason: "TOPIC_CHANGED",
+      sourceInteractionId: "inbound-message",
+    }));
+  });
+
+  it("does not execute or send again when the outbound claim is already held by a retry", async () => {
+    const { service, repository, ai, calendar, whatsapp } = setup("AI_ACTIVE", false);
+
+    await service.process(inbound);
+
+    expect(repository.claimOutboundMessage).toHaveBeenCalledOnce();
+    expect(ai.generateReply).not.toHaveBeenCalled();
+    expect(calendar.findAvailableSlots).not.toHaveBeenCalled();
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+  });
+
+  it("rejects stale booking actions when the current message has no booking intent", async () => {
+    const { service, repository, ai, calendar, whatsapp } = setup();
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context(),
+      messages: [{ ...context().messages[0], content: "Hola Valentina, cuéntame cómo AgenteFactory podría ayudarme." }],
+    });
+    vi.mocked(repository.getRecentOfferedSlots).mockResolvedValueOnce([
+      "2026-09-17T13:00:00.000Z",
+      "2026-09-17T15:30:00.000Z",
+    ]);
+    vi.mocked(ai.generateReply).mockResolvedValueOnce({
+      reply: "¡De una! Te cuento cómo podemos ayudarte.",
+      memoryRelevant: false,
+      humanHandoffRequired: false,
+      humanHandoffReason: "",
+      appointmentRequest: {
+        action: "SUGGEST",
+        requestedStart: null,
+        timezone: "America/Caracas",
+        attendeeName: null,
+        attendeeEmail: null,
+        company: null,
+        reason: null,
+        availabilityDate: null,
+        dayPart: "ANY",
+      },
+      memoryUpdate: context().memory,
+    });
+
+    await service.process(inbound);
+
+    expect(calendar.findAvailableSlots).not.toHaveBeenCalled();
+    expect(whatsapp.sendText).toHaveBeenCalledOnce();
+    expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).toBe("¡Claro! Te cuento cómo podemos ayudarte.");
+    expect(repository.clearRecentOfferedSlots).toHaveBeenCalledWith(expect.objectContaining({ reason: "TOPIC_CHANGED" }));
+  });
+
   it.each([
     "quiero hablar con Alejandro",
     "quiero hablar con el asesor",
@@ -470,6 +547,10 @@ describe("AutoReplyService", () => {
 
   it("offers two real Calendar slots immediately when the contact wants to book", async () => {
     const { service, ai, calendar, repository, whatsapp } = setup();
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context(),
+      messages: [{ ...context().messages[0], content: "quiero agendar" }],
+    });
     vi.mocked(ai.generateReply).mockResolvedValueOnce({
       reply: "¡De una!",
       memoryRelevant: false,
@@ -529,7 +610,7 @@ describe("AutoReplyService", () => {
     const { service, ai, calendar, repository } = setup();
     vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
       ...context(),
-      messages: [{ ...context().messages[0], content: "Por la tarde" }],
+      messages: [{ ...context().messages[0], content: "Quiero agendar por la tarde" }],
     });
     vi.mocked(ai.generateReply).mockResolvedValueOnce({
       reply: "Busco por la tarde.", memoryRelevant: false, humanHandoffRequired: false, humanHandoffReason: "",
@@ -549,6 +630,10 @@ describe("AutoReplyService", () => {
     const { service, ai, calendar, repository } = setup();
     const previous = ["2026-09-17T14:00:00.000Z", "2026-09-17T19:00:00.000Z"];
     vi.mocked(repository.getRecentOfferedSlots).mockResolvedValueOnce(previous);
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context(),
+      messages: [{ ...context().messages[0], content: "Quiero otras opciones para agendar" }],
+    });
     vi.mocked(ai.generateReply).mockResolvedValueOnce({
       reply: "Busco otras dos.", memoryRelevant: false, humanHandoffRequired: false, humanHandoffReason: "",
       appointmentRequest: {
@@ -753,6 +838,10 @@ describe("AutoReplyService", () => {
 
   it("cancels the existing calendar event and updates Supabase", async () => {
     const { service, ai, calendar, repository, whatsapp } = setup();
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context(),
+      messages: [{ ...context().messages[0], content: "Cancela mi cita" }],
+    });
     vi.mocked(repository.getCurrentAppointment).mockResolvedValueOnce(appointment());
     vi.mocked(ai.generateReply).mockResolvedValueOnce({
       reply: "Voy a cancelarla.",
@@ -825,6 +914,10 @@ describe("AutoReplyService", () => {
 
   it("retrieves the existing event from Google before describing it", async () => {
     const { service, ai, calendar, repository, whatsapp } = setup();
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context(),
+      messages: [{ ...context().messages[0], content: "¿A qué hora es mi cita?" }],
+    });
     vi.mocked(repository.getCurrentAppointment).mockResolvedValueOnce(appointment());
     vi.mocked(calendar.get).mockResolvedValueOnce({
       eventId: "calendar-event",

@@ -108,6 +108,11 @@ export interface ConversationRepository {
   }): Promise<void>;
   getCurrentAppointment(contactId: string): Promise<Appointment | null>;
   getRecentOfferedSlots(conversationId: string): Promise<string[]>;
+  clearRecentOfferedSlots(input: {
+    conversation: ConversationContext;
+    sourceInteractionId: string;
+    reason: "TOPIC_CHANGED" | "BOOKED" | "CANCELLED";
+  }): Promise<void>;
   recordOfferedSlots(input: {
     conversation: ConversationContext;
     sourceInteractionId: string;

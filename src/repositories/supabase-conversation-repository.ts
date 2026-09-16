@@ -290,15 +290,40 @@ export class SupabaseConversationRepository implements ConversationRepository {
       .from("conversation_events")
       .select("metadata")
       .eq("conversation_id", conversationId)
-      .eq("event_type", "BOOKING_SLOTS_OFFERED")
+      .in("event_type", ["BOOKING_SLOTS_OFFERED", "BOOKING_SLOTS_CLEARED"])
       .gte("created_at", cutoff)
       .order("created_at", { ascending: false })
       .limit(5);
     if (error) throw new Error(`Offered slots lookup failed: ${error.message}`, { cause: error });
-    return (data ?? []).flatMap((event) => {
+    const activeEvents = [];
+    for (const event of data ?? []) {
+      const metadata = event.metadata as { cleared?: unknown } | null;
+      if (metadata?.cleared === true) break;
+      activeEvents.push(event);
+    }
+    return activeEvents.flatMap((event) => {
       const slots = (event.metadata as { slots?: unknown } | null)?.slots;
       return Array.isArray(slots) ? slots.filter((slot): slot is string => typeof slot === "string") : [];
     });
+  }
+
+  async clearRecentOfferedSlots(input: {
+    conversation: ConversationContext;
+    sourceInteractionId: string;
+    reason: "TOPIC_CHANGED" | "BOOKED" | "CANCELLED";
+  }): Promise<void> {
+    const { error } = await this.client.from("conversation_events").insert({
+      organization_id: input.conversation.organizationId,
+      conversation_id: input.conversation.id,
+      event_type: "BOOKING_SLOTS_CLEARED",
+      actor_type: "SYSTEM",
+      metadata: {
+        cleared: true,
+        reason: input.reason,
+        source_interaction_id: input.sourceInteractionId,
+      },
+    });
+    if (error) throw new Error(`Offered slots cleanup failed: ${error.message}`, { cause: error });
   }
 
   async recordOfferedSlots(input: {

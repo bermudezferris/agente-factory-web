@@ -31,6 +31,9 @@ const DATE_EVIDENCE = /\b(?:hoy|mañana|pasado mañana|lunes|martes|miércoles|m
 const TIME_EVIDENCE = /\b(?:a\s+las?\s+\d{1,2}(?::\d{2})?|\d{1,2}:\d{2}|\d{1,2}\s*(?:a\.?\s*m\.?|p\.?\s*m\.?))\b/i;
 const BOOKING_CONTINUATION = /\b(?:agend|reserv|confirm|esa hora|ese día|ese dia|mi nombre|correo|email|empresa|sí|si|perfecto|listo)\b/i;
 const BOOKING_RESET = /\b(?:cancel|olvida|descarta|ya no|no quiero)\w*/i;
+const GREETING_ONLY = /^(?:¡|¿|[\s])*?(?:hola|buenas|buen\s+d[ií]a|buenas\s+tardes|buenas\s+noches|hey|qu[eé]\s+tal)(?:[!¡?¿.,\s])*$/i;
+const CURRENT_BOOKING_INTENT = /\b(?:agend\w*|reserv\w*|cita|diagn[oó]stico|videollamada|calendar(?:io)?|horario|disponibilidad|reprogram\w*|m(?:ue|o)v\w*|cancel\w*\s+(?:la\s+)?cita)\b/i;
+const BOOKING_CONTINUATION_REPLY = /\b(?:s[ií]|confirm\w*|otra\w*|ninguna|ninguno|primera|segunda|correo|email|mi nombre|empresa|ma[nñ]ana|tarde|temprano)\b|@|\d{1,2}(?::\d{2})?/i;
 
 function hasExplicitDateAndTime(value: string): boolean {
   return DATE_EVIDENCE.test(value) && TIME_EVIDENCE.test(value);
@@ -38,6 +41,36 @@ function hasExplicitDateAndTime(value: string): boolean {
 
 function hasSpecificDateOrTime(value: string): boolean {
   return DATE_EVIDENCE.test(value) || TIME_EVIDENCE.test(value);
+}
+
+function isGreetingOnly(value: string): boolean {
+  return GREETING_ONLY.test(value.trim());
+}
+
+function hasImmediateBookingContinuation(
+  messages: Awaited<ReturnType<ConversationRepository["getConversationContext"]>>["messages"],
+  inboundMessageId: string,
+): boolean {
+  const currentIndex = messages.findIndex((message) => message.id === inboundMessageId);
+  if (currentIndex <= 0) return false;
+  const current = messages[currentIndex];
+  const previous = messages[currentIndex - 1];
+  if (!current?.content || isGreetingOnly(current.content) || previous?.direction !== "OUTBOUND" || !previous.content) return false;
+  const bookingPrompt = /(?:cu[aá]l te funciona|nombre completo|correo|dejarlo confirmado|horario|cita|agend)/i.test(previous.content);
+  const closeEnough = new Date(current.occurredAt).getTime() - new Date(previous.occurredAt).getTime() <= 30 * 60 * 1000;
+  return bookingPrompt && closeEnough && BOOKING_CONTINUATION_REPLY.test(current.content);
+}
+
+function professionalizeTone(value: string): string {
+  return value
+    .replace(/¡?de una(?: vez)?!?/gi, "¡Claro!")
+    .replace(/\bdale\b[,.!]?/gi, "Perfecto,")
+    .replace(/\btranqui\b/gi, "no te preocupes")
+    .replace(/\bfull\s+interesante\b/gi, "muy interesante")
+    .replace(/\bbrutal\b/gi, "excelente")
+    .replace(/\bqu[eé]\s+nota\b/gi, "qué bien")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 function supportsAvailabilityDate(value: string): boolean {
@@ -119,7 +152,7 @@ function formatDate(value: string, timeZone: string): string {
 
 function alternativesReply(availability: CalendarAvailability, timeZone: string): string {
   if (availability.alternatives.length === 0) {
-    return "Ese horario no está disponible. Dime qué otro día te funciona y reviso opciones reales de una vez.";
+    return "Ese horario no está disponible. Dime qué otro día te funciona y reviso opciones reales.";
   }
   const alternatives = availability.alternatives.slice(0, 2).map((slot) => formatDate(slot, timeZone));
   const list = alternatives.length === 1
@@ -139,7 +172,7 @@ function offeredSlotsReply(slots: string[], timeZone: string): string {
   if (slots.length === 0) return "No encontré un espacio cercano que cumpla el horario. ¿Prefieres mañana o tarde para ampliar la búsqueda?";
   const labels = slots.map((slot) => formatDate(slot, timeZone));
   if (labels.length === 1) return `Tengo libre ${labels[0]} 😊 ¿Te funciona?`;
-  return `¡De una! 😊 Tengo libre ${labels[0]} o ${labels[1]}. ¿Cuál te funciona mejor?`;
+  return `¡Claro! 😊 Tengo libre ${labels[0]} o ${labels[1]}. ¿Cuál te funciona mejor?`;
 }
 
 type OfferedSlotResolution =
@@ -324,6 +357,24 @@ export class AutoReplyService {
       const offeredSlots = this.calendar && this.bookingConfig
         ? await this.repository.getRecentOfferedSlots(conversation.id)
         : [];
+      if (isGreetingOnly(currentText)) {
+        const greeting = "¡Hola! 😊 ¿Cómo te puedo ayudar?";
+        const whatsappMessageId = await this.whatsapp.sendText(
+          conversation.phoneNumberId,
+          conversation.contactWaId,
+          greeting,
+        );
+        await this.repository.completeOutboundMessage(outboundMessageId, whatsappMessageId, greeting);
+        if (offeredSlots.length > 0) {
+          await this.repository.clearRecentOfferedSlots({
+            conversation,
+            sourceInteractionId: inbound.messageId,
+            reason: "TOPIC_CHANGED",
+          });
+        }
+        this.logger.info("greeting_fast_path", { conversationId: conversation.id });
+        return;
+      }
       const offeredSlotResolution = this.bookingConfig
         ? resolveOfferedSlotSelection(currentText, offeredSlots, this.bookingConfig.timeZone)
         : { kind: "NONE" as const };
@@ -395,6 +446,25 @@ export class AutoReplyService {
       let humanHandoffReason = generated.humanHandoffReason;
       let memoryRelevant = generated.memoryRelevant;
       let memoryUpdate = generated.memoryUpdate;
+      const currentBookingEvidence = CURRENT_BOOKING_INTENT.test(currentText)
+        || hasSpecificDateOrTime(currentText)
+        || offeredSlotResolution.kind === "SELECTED"
+        || hasImmediateBookingContinuation(conversation.messages, inbound.messageId);
+      if (generated.appointmentRequest && !currentBookingEvidence) {
+        this.logger.warn("booking_action_rejected_without_current_intent", {
+          conversationId: conversation.id,
+          inboundMessageId: inbound.messageId,
+          action: generated.appointmentRequest.action,
+        });
+        generated.appointmentRequest = null;
+        if (offeredSlots.length > 0) {
+          await this.repository.clearRecentOfferedSlots({
+            conversation,
+            sourceInteractionId: inbound.messageId,
+            reason: "TOPIC_CHANGED",
+          });
+        }
+      }
 
       const timeProvenance = bookingTimeProvenance(
         conversation.messages,
@@ -453,6 +523,7 @@ export class AutoReplyService {
         if (handled.humanHandoffReason) humanHandoffReason = handled.humanHandoffReason;
       }
 
+      reply = professionalizeTone(reply);
       const whatsappMessageId = await this.whatsapp.sendText(
         conversation.phoneNumberId,
         conversation.contactWaId,
@@ -548,6 +619,11 @@ export class AutoReplyService {
         if (!current?.calendarEventId) return unchanged("No encuentro una cita activa para cancelar.");
         await this.calendar.cancel(current.calendarEventId);
         await this.repository.markAppointmentCancelled(current.id);
+        await this.repository.clearRecentOfferedSlots({
+          conversation,
+          sourceInteractionId: inbound.messageId,
+          reason: "CANCELLED",
+        });
         return {
           ...unchanged("Listo, cancelé tu cita. Si quieres coordinar otra fecha más adelante, me dices."),
           memoryRelevant: true,
@@ -649,6 +725,11 @@ export class AutoReplyService {
           reservation.end,
           new Date(new Date(reservation.end).getTime() + this.bookingConfig.bufferMinutes * 60000).toISOString(),
         );
+        await this.repository.clearRecentOfferedSlots({
+          conversation,
+          sourceInteractionId: inbound.messageId,
+          reason: "BOOKED",
+        });
         this.logger.info("calendar_booking_created", {
           conversationId: conversation.id,
           eventId: reservation.eventId,
