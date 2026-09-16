@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BOOKING_TIME_ZONE,
   BookingSlotUnavailableError,
   validateBookingStart,
 } from "@/services/calendar/google-calendar-booking-client";
@@ -8,6 +9,10 @@ import {
 const now = new Date("2026-09-15T12:00:00.000Z");
 
 describe("Google Calendar booking schedule", () => {
+  it("uses Venezuela time without daylight-saving drift", () => {
+    expect(BOOKING_TIME_ZONE).toBe("America/Caracas");
+  });
+
   it("accepts a current 25-minute slot on the existing schedule", () => {
     const result = validateBookingStart("2026-09-16T09:00:00-04:00", now);
     expect(result.start.toISOString()).toBe("2026-09-16T13:00:00.000Z");

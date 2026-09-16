@@ -315,6 +315,37 @@ describe("AutoReplyService", () => {
     expect(reply).not.toContain("http");
   });
 
+  it("sends a fallback and requests human help when Calendar fails", async () => {
+    const { service, ai, calendar, repository, whatsapp } = setup();
+    vi.mocked(ai.generateReply).mockResolvedValueOnce({
+      reply: "Déjame revisar.",
+      memoryRelevant: false,
+      humanHandoffRequired: false,
+      humanHandoffReason: "",
+      appointmentRequest: {
+        action: "CHECK",
+        requestedStart: "2026-09-16T09:00:00-04:00",
+        timezone: "America/Caracas",
+        attendeeName: null,
+        attendeeEmail: null,
+        company: null,
+        reason: null,
+      },
+      memoryUpdate: context().memory,
+    });
+    vi.mocked(calendar.checkAvailability).mockRejectedValueOnce(new Error("Calendar unavailable"));
+
+    await service.process(inbound);
+
+    expect(whatsapp.sendText).toHaveBeenCalledWith(
+      "phone-id",
+      "contact-wa-id",
+      expect.stringContaining("problema para confirmar el calendario"),
+    );
+    expect(repository.completeOutboundMessage).toHaveBeenCalledOnce();
+    expect(repository.transitionConversation).toHaveBeenCalledWith("conversation", "HUMAN_REQUIRED");
+  });
+
   it("cancels the existing calendar event and updates Supabase", async () => {
     const { service, ai, calendar, repository, whatsapp } = setup();
     vi.mocked(repository.getCurrentAppointment).mockResolvedValueOnce(appointment());
