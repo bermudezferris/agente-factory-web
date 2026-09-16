@@ -219,17 +219,18 @@ export class OpenAIResponsesProvider implements AiProvider {
       throw new Error("OpenAI returned invalid structured memory JSON");
     }
     if (!result.reply.trim()) throw new Error("OpenAI returned an empty reply");
-    if (["CHECK", "BOOK", "RESCHEDULE"].includes(result.appointment_action) && !result.appointment_requested_start) {
-      throw new Error("OpenAI requested a calendar action without a start time");
-    }
+    const appointmentAction = ["CHECK", "BOOK", "RESCHEDULE"].includes(result.appointment_action)
+      && !result.appointment_requested_start
+      ? "NONE"
+      : result.appointment_action;
 
     return {
       reply: result.reply.trim(),
       memoryRelevant: result.memory_relevant,
       humanHandoffRequired: result.human_handoff_required,
       humanHandoffReason: result.human_handoff_reason.trim(),
-      appointmentRequest: result.appointment_action === "NONE" ? null : {
-        action: result.appointment_action,
+      appointmentRequest: appointmentAction === "NONE" ? null : {
+        action: appointmentAction,
         requestedStart: result.appointment_requested_start,
         timezone: result.appointment_timezone,
         attendeeName: result.attendee_name,

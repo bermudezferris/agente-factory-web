@@ -563,6 +563,76 @@ describe("AutoReplyService", () => {
     expect(calendar.findAvailableSlots).toHaveBeenCalledWith(expect.objectContaining({ exclude: previous }));
   });
 
+  it.each(["11:30", "la segunda", "jueves 11:30"])(
+    "resolves an offered slot contextually for: %s",
+    async (content) => {
+      const { service, repository, ai, calendar, whatsapp } = setup();
+      vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+        ...context(),
+        messages: [{ ...context().messages[0], content }],
+      });
+      vi.mocked(repository.getRecentOfferedSlots).mockResolvedValueOnce([
+        "2026-09-17T13:00:00.000Z",
+        "2026-09-17T15:30:00.000Z",
+      ]);
+
+      await service.process(inbound);
+
+      expect(ai.generateReply).not.toHaveBeenCalled();
+      expect(calendar.checkAvailability).toHaveBeenCalledWith("2026-09-17T15:30:00.000Z");
+      expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).toContain("11:30 a. m");
+      expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).not.toContain("inconveniente");
+    },
+  );
+
+  it("asks for confirmation when AM/PM contradicts a recently offered slot", async () => {
+    const { service, repository, ai, calendar, whatsapp } = setup();
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context(),
+      messages: [{ ...context().messages[0], content: "Jueves 11:30 pm?" }],
+    });
+    vi.mocked(repository.getRecentOfferedSlots).mockResolvedValueOnce([
+      "2026-09-17T13:00:00.000Z",
+      "2026-09-17T15:30:00.000Z",
+    ]);
+
+    await service.process(inbound);
+
+    expect(ai.generateReply).not.toHaveBeenCalled();
+    expect(calendar.checkAvailability).not.toHaveBeenCalled();
+    expect(whatsapp.sendText).toHaveBeenCalledWith(
+      "phone-id",
+      "contact-wa-id",
+      expect.stringContaining("¿11:30 a. m, la segunda opción que te pasé?"),
+    );
+    expect(repository.transitionConversation).not.toHaveBeenCalled();
+  });
+
+  it("treats an explicit AM/PM correction as a new requested time", async () => {
+    const { service, repository, ai, calendar, whatsapp } = setup();
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context(),
+      messages: [{ ...context().messages[0], content: "no, 11:30 pm" }],
+    });
+    vi.mocked(repository.getRecentOfferedSlots).mockResolvedValueOnce([
+      "2026-09-17T13:00:00.000Z",
+      "2026-09-17T15:30:00.000Z",
+    ]);
+    vi.mocked(calendar.checkAvailability).mockResolvedValueOnce({
+      available: false,
+      alternatives: [],
+      reason: "outside_business_hours",
+    });
+
+    await service.process(inbound);
+
+    expect(ai.generateReply).not.toHaveBeenCalled();
+    expect(calendar.checkAvailability).toHaveBeenCalledWith("2026-09-18T03:30:00.000Z");
+    expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).toContain("no está disponible");
+    expect(repository.createAppointmentHold).not.toHaveBeenCalled();
+    expect(repository.transitionConversation).not.toHaveBeenCalled();
+  });
+
   it("books directly, confirms by WhatsApp and remembers the appointment", async () => {
     const { service, ai, calendar, whatsapp, repository } = setup();
     vi.mocked(repository.getConversationContext).mockResolvedValueOnce({

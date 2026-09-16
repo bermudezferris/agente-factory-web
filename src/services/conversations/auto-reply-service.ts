@@ -142,6 +142,84 @@ function offeredSlotsReply(slots: string[], timeZone: string): string {
   return `¡De una! 😊 Tengo libre ${labels[0]} o ${labels[1]}. ¿Cuál te funciona mejor?`;
 }
 
+type OfferedSlotResolution =
+  | { kind: "SELECTED"; requestedStart: string }
+  | { kind: "CLARIFY"; reply: string }
+  | { kind: "NONE" };
+
+function localClock(value: string, timeZone: string): { hour: number; minute: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(value));
+  return {
+    hour: Number(parts.find((part) => part.type === "hour")?.value),
+    minute: Number(parts.find((part) => part.type === "minute")?.value),
+  };
+}
+
+function displayClock(value: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("es-VE", {
+    timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value)).replace(/\.$/, "");
+}
+
+function resolveOfferedSlotSelection(
+  input: string,
+  offeredSlots: string[],
+  timeZone: string,
+): OfferedSlotResolution {
+  const slots = offeredSlots.slice(0, 2);
+  if (slots.length === 0) return { kind: "NONE" };
+  const normalized = input.toLocaleLowerCase("es").trim();
+  const ordinal = /\b(?:la\s+)?primera(?:\s+opci[oó]n)?\b/.test(normalized)
+    ? 0
+    : /\b(?:la\s+)?segunda(?:\s+opci[oó]n)?\b/.test(normalized)
+      ? 1
+      : null;
+  if (ordinal !== null && slots[ordinal]) return { kind: "SELECTED", requestedStart: slots[ordinal] };
+
+  if (/\bla\s+de\s+la\s+ma[nñ]ana\b/.test(normalized)) {
+    const morning = slots.filter((slot) => localClock(slot, timeZone).hour < 12);
+    if (morning.length === 1) return { kind: "SELECTED", requestedStart: morning[0] };
+  }
+
+  const timeMatch = normalized.match(/\b(\d{1,2})(?::(\d{2}))?\s*(a\.?\s*m\.?|p\.?\s*m\.?)?\b/);
+  if (!timeMatch) return { kind: "NONE" };
+  const statedHour = Number(timeMatch[1]);
+  const statedMinute = Number(timeMatch[2] ?? "0");
+  const statedMeridiem = timeMatch[3]?.replace(/[.\s]/g, "").startsWith("p") ? "PM"
+    : timeMatch[3] ? "AM" : null;
+  const matching = slots.find((slot) => {
+    const clock = localClock(slot, timeZone);
+    const twelveHour = clock.hour % 12 || 12;
+    return twelveHour === statedHour && clock.minute === statedMinute;
+  });
+  if (!matching) return { kind: "NONE" };
+
+  const matchingClock = localClock(matching, timeZone);
+  const offeredMeridiem = matchingClock.hour >= 12 ? "PM" : "AM";
+  if (statedMeridiem && statedMeridiem !== offeredMeridiem) {
+    if (/^no\b/.test(normalized)) {
+      const hourDelta = statedMeridiem === "PM" ? 12 : -12;
+      return {
+        kind: "SELECTED",
+        requestedStart: new Date(new Date(matching).getTime() + hourDelta * 60 * 60 * 1000).toISOString(),
+      };
+    }
+    const option = slots.indexOf(matching) === 0 ? "primera" : "segunda";
+    return {
+      kind: "CLARIFY",
+      reply: `¿${displayClock(matching, timeZone)}, la ${option} opción que te pasé? 😊`,
+    };
+  }
+  return { kind: "SELECTED", requestedStart: matching };
+}
+
 function dateSearchRange(date: string | null | undefined): { from?: string; to?: string } {
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return {};
   const from = new Date(`${date}T00:00:00-04:00`);
@@ -242,8 +320,46 @@ export class AutoReplyService {
       const currentAppointment = this.calendar
         ? await this.repository.getCurrentAppointment(conversation.contactId)
         : null;
+      const currentText = conversation.messages.find((message) => message.id === inbound.messageId)?.content ?? "";
+      const offeredSlots = this.calendar && this.bookingConfig
+        ? await this.repository.getRecentOfferedSlots(conversation.id)
+        : [];
+      const offeredSlotResolution = this.bookingConfig
+        ? resolveOfferedSlotSelection(currentText, offeredSlots, this.bookingConfig.timeZone)
+        : { kind: "NONE" as const };
+      if (offeredSlotResolution.kind === "CLARIFY") {
+        const whatsappMessageId = await this.whatsapp.sendText(
+          conversation.phoneNumberId,
+          conversation.contactWaId,
+          offeredSlotResolution.reply,
+        );
+        await this.repository.completeOutboundMessage(outboundMessageId, whatsappMessageId, offeredSlotResolution.reply);
+        this.logger.info("booking_offered_slot_clarification", { conversationId: conversation.id });
+        return;
+      }
       let generated: Awaited<ReturnType<AiProvider["generateReply"]>>;
-      try {
+      if (offeredSlotResolution.kind === "SELECTED") {
+        generated = {
+          reply: "Voy a comprobar esa opción.",
+          memoryRelevant: false,
+          humanHandoffRequired: false,
+          humanHandoffReason: "",
+          appointmentRequest: {
+            action: "CHECK",
+            requestedStart: offeredSlotResolution.requestedStart,
+            timezone: this.bookingConfig?.timeZone ?? null,
+            attendeeName: null,
+            attendeeEmail: null,
+            company: null,
+            reason: null,
+          },
+          memoryUpdate: conversation.memory,
+        };
+        this.logger.info("booking_offered_slot_resolved", {
+          conversationId: conversation.id,
+          requestedStart: offeredSlotResolution.requestedStart,
+        });
+      } else try {
         generated = await this.ai.generateReply({
           memory: conversation.memory,
           recentHistory: conversation.messages,
@@ -284,12 +400,11 @@ export class AutoReplyService {
         conversation.messages,
         inbound.messageId,
         currentAppointment,
-      );
+      ) ?? (offeredSlotResolution.kind === "SELECTED" ? "RECENT_CONTEXT" : null);
       const generatedSlot = generated.appointmentRequest?.requestedStart;
       const unsupportedSlot = Boolean(generatedSlot && !timeProvenance);
       const isSuggestion = generated.appointmentRequest?.action === "SUGGEST";
       if (isSuggestion && generated.appointmentRequest) {
-        const currentText = conversation.messages.find((message) => message.id === inbound.messageId)?.content ?? "";
         if (generated.appointmentRequest.availabilityDate && !supportsAvailabilityDate(currentText)) {
           generated.appointmentRequest.availabilityDate = null;
         }
@@ -329,6 +444,7 @@ export class AutoReplyService {
           inbound,
           conversation,
           memoryUpdate,
+          offeredSlots,
         );
         reply = handled.reply;
         memoryRelevant ||= handled.memoryRelevant;
@@ -397,6 +513,7 @@ export class AutoReplyService {
     inbound: IngestResult,
     conversation: Awaited<ReturnType<ConversationRepository["getConversationContext"]>>,
     memoryUpdate: ContactMemory,
+    recentOfferedSlots: string[],
   ): Promise<{
     reply: string;
     memoryRelevant: boolean;
@@ -442,12 +559,11 @@ export class AutoReplyService {
       }
 
       if (action === "SUGGEST") {
-        const excluded = await this.repository.getRecentOfferedSlots(conversation.id);
         const range = dateSearchRange(request.availabilityDate);
         const candidates = await this.calendar.findAvailableSlots({
           ...range,
           dayPart: request.dayPart ?? "ANY",
-          exclude: excluded,
+          exclude: recentOfferedSlots,
           count: 12,
         });
         const slots = pickDifferentiatedSlots(candidates).slice(0, 2);

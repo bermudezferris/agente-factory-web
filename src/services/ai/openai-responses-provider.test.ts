@@ -183,4 +183,41 @@ describe("OpenAIResponsesProvider persistent memory", () => {
       dayPart: "ANY",
     });
   });
+
+  it("treats a calendar action without a start time as conversational ambiguity", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      output_text: JSON.stringify({
+        reply: "¿Te refieres a la segunda opción?",
+        memory_relevant: false,
+        human_handoff_required: false,
+        human_handoff_reason: "",
+        appointment_action: "CHECK",
+        appointment_requested_start: null,
+        appointment_timezone: "America/Caracas",
+        attendee_name: null,
+        attendee_email: null,
+        attendee_company: null,
+        appointment_reason: null,
+        availability_date: null,
+        availability_day_part: "ANY",
+        relevant_client_data: [],
+        needs_and_interests: [],
+        agreements_and_commitments: [],
+        appointments_and_pending: [],
+        important_objections: [],
+        human_handoff_notes: [],
+        previous_conversations_summary: memory.previousConversationsSummary,
+      }),
+    }), { status: 200, headers: { "content-type": "application/json" } })));
+
+    const result = await new OpenAIResponsesProvider("secret", "gpt-test").generateReply({
+      memory,
+      recentHistory: history,
+      appointment: null,
+    });
+
+    expect(result.reply).toBe("¿Te refieres a la segunda opción?");
+    expect(result.appointmentRequest).toBeNull();
+    expect(result.humanHandoffRequired).toBe(false);
+  });
 });

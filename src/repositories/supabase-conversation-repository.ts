@@ -47,6 +47,18 @@ function deterministicUuid(value: string): string {
   return `${hex.slice(0, 8).join("")}-${hex.slice(8, 12).join("")}-${hex.slice(12, 16).join("")}-${hex.slice(16, 20).join("")}-${hex.slice(20).join("")}`;
 }
 
+function formatOfferedSlot(value: string): string {
+  return new Intl.DateTimeFormat("es-VE", {
+    timeZone: "America/Caracas",
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value)).replace(/\.$/, "");
+}
+
 function mapAppointment(row: Record<string, unknown>): Appointment {
   return {
     id: row.id as string,
@@ -294,12 +306,21 @@ export class SupabaseConversationRepository implements ConversationRepository {
     sourceInteractionId: string;
     slots: string[];
   }): Promise<void> {
+    const durationMinutes = 25;
     const { error } = await this.client.from("conversation_events").insert({
       organization_id: input.conversation.organizationId,
       conversation_id: input.conversation.id,
       event_type: "BOOKING_SLOTS_OFFERED",
       actor_type: "AI_AGENT",
-      metadata: { slots: input.slots, source_interaction_id: input.sourceInteractionId },
+      metadata: {
+        slots: input.slots,
+        offered_slots: input.slots.map((start) => ({
+          start,
+          end: new Date(new Date(start).getTime() + durationMinutes * 60 * 1000).toISOString(),
+          display_label: formatOfferedSlot(start),
+        })),
+        source_interaction_id: input.sourceInteractionId,
+      },
     });
     if (error) throw new Error(`Offered slots persistence failed: ${error.message}`, { cause: error });
   }
