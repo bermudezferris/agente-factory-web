@@ -112,6 +112,7 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     expect(request.instructions).toContain("No repitas duración, gratuidad, consultor Senior");
       expect(request.instructions).toContain("¿Cuándo podemos hacer una videollamada?”, usa SUGGEST");
     expect(request.instructions).toContain("Una solicitud antigua o pendiente guardada en memoria no autoriza reutilizar ese horario");
+    expect(request.instructions).toContain("usa SUGGEST para consultar Calendar y ofrecer dos espacios reales");
     expect(request.instructions).toContain("Nunca guardes en memoria persistente fechas u horas tentativas");
     expect(request.instructions).toContain("Te entusiasma genuinamente el potencial de la inteligencia artificial");
     expect(request.instructions).toContain("avance, tranquilidad");
@@ -125,6 +126,9 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     expect(request.instructions).toContain("Tenemos tres clínicas");
     expect(request.instructions).toContain("Se nos acumulan los mensajes");
     expect(request.instructions).toContain("¿Qué hacen ustedes?");
+    expect(request.instructions).toContain("No añadas un catálogo de tareas, términos técnicos ni CTA automático");
+    expect(request.instructions).toContain("¿Dónde están ubicados?");
+    expect(request.instructions).toContain("Responde la ubicación sin proponer automáticamente el diagnóstico");
     expect(request.instructions).toContain("¿Qué es un agente?");
     expect(request.instructions).toContain("Quiero saber cuánto cuesta");
     expect(request.instructions).toContain("No estoy seguro");

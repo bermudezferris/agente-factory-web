@@ -350,7 +350,9 @@ describe("AutoReplyService", () => {
     await service.process(inbound);
 
     expect(calendar.checkAvailability).not.toHaveBeenCalled();
-    expect(whatsapp.sendText).toHaveBeenCalledWith("phone-id", "contact-wa-id", "¿Qué día y hora te vienen bien?");
+    expect(calendar.findAvailableSlots).toHaveBeenCalledOnce();
+    expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).toContain("10:00 a. m");
+    expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).toContain("3:00 p. m");
   });
 
   it("does not reuse a tentative slot after the contact cancelled it", async () => {
@@ -383,7 +385,8 @@ describe("AutoReplyService", () => {
     await service.process(inbound);
 
     expect(calendar.checkAvailability).not.toHaveBeenCalled();
-    expect(whatsapp.sendText).toHaveBeenCalledWith("phone-id", "contact-wa-id", "¿Qué día y hora te vienen bien?");
+    expect(calendar.findAvailableSlots).toHaveBeenCalledOnce();
+    expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).not.toContain("3:00 a. m");
   });
 
   it("retrieves the time from a confirmed appointment", async () => {
@@ -583,6 +586,45 @@ describe("AutoReplyService", () => {
     expect(reply).not.toContain("nombre");
     expect(reply).not.toContain("correo");
   });
+
+  it("offers two real Calendar slots when the contact accepts an explicit booking CTA", async () => {
+    const { service, ai, calendar, repository, whatsapp } = setup();
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context(),
+      messages: [
+        { id: "cta", direction: "OUTBOUND", senderType: "AI_AGENT", content: "¿Quieres que agende el Diagnóstico Estratégico de IA?", occurredAt: "2026-09-17T02:09:47Z", status: "SENT" },
+        { id: "inbound-message", direction: "INBOUND", senderType: "CONTACT", content: "si", occurredAt: "2026-09-17T02:11:00Z", status: "RECEIVED" },
+      ],
+    });
+
+    await service.process(inbound);
+
+    expect(ai.generateReply).not.toHaveBeenCalled();
+    expect(calendar.findAvailableSlots).toHaveBeenCalledOnce();
+    const reply = vi.mocked(whatsapp.sendText).mock.calls[0][2];
+    expect(reply).toContain("10:00 a. m");
+    expect(reply).toContain("3:00 p. m");
+    expect(reply).not.toContain("Qué día y hora");
+  });
+
+  it.each(["¿qué tienes disponible?", "que tienes disponioble?", "¿qué horarios tienen?"])(
+    "offers two real Calendar slots for an explicit availability request: %s",
+    async (content) => {
+      const { service, ai, calendar, repository, whatsapp } = setup();
+      vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+        ...context(),
+        messages: [{ ...context().messages[0], content }],
+      });
+
+      await service.process(inbound);
+
+      expect(ai.generateReply).not.toHaveBeenCalled();
+      expect(calendar.findAvailableSlots).toHaveBeenCalledOnce();
+      const reply = vi.mocked(whatsapp.sendText).mock.calls[0][2];
+      expect(reply).toContain("10:00 a. m");
+      expect(reply).toContain("3:00 p. m");
+    },
+  );
 
   it("limits proactive availability to the requested day", async () => {
     const { service, ai, calendar, repository } = setup();

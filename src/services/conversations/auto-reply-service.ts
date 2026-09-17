@@ -34,6 +34,7 @@ const BOOKING_RESET = /\b(?:cancel|olvida|descarta|ya no|no quiero)\w*/i;
 const GREETING_ONLY = /^(?:¡|¿|[\s])*?(?:hola|buenas|buen\s+d[ií]a|buenas\s+tardes|buenas\s+noches|hey|qu[eé]\s+tal)(?:[!¡?¿.,\s])*$/i;
 const CURRENT_BOOKING_INTENT = /\b(?:agend\w*|reserv\w*|cita|diagn[oó]stico|videollamada|calendar(?:io)?|horario|disponibilidad|reprogram\w*|m(?:ue|o)v\w*|cancel\w*\s+(?:la\s+)?cita)\b/i;
 const BOOKING_CONTINUATION_REPLY = /\b(?:s[ií]|confirm\w*|otra\w*|ninguna|ninguno|primera|segunda|correo|email|mi nombre|empresa|ma[nñ]ana|tarde|temprano)\b|@|\d{1,2}(?::\d{2})?/i;
+const AVAILABILITY_REQUEST = /\b(?:qu[eé]\s+(?:tienes|tienen|hay)\s+dispon\w*|qu[eé]\s+horarios?\s+(?:tienes|tienen|hay)|cu[aá]ndo\s+(?:tienes|tienen|hay)|horarios?\s+dispon\w*|disponibilidad)\b/i;
 
 function hasExplicitDateAndTime(value: string): boolean {
   return DATE_EVIDENCE.test(value) && TIME_EVIDENCE.test(value);
@@ -59,6 +60,29 @@ function hasImmediateBookingContinuation(
   const bookingPrompt = /(?:cu[aá]l te funciona|nombre completo|correo|dejarlo confirmado|horario|cita|agend)/i.test(previous.content);
   const closeEnough = new Date(current.occurredAt).getTime() - new Date(previous.occurredAt).getTime() <= 30 * 60 * 1000;
   return bookingPrompt && closeEnough && BOOKING_CONTINUATION_REPLY.test(current.content);
+}
+
+function acceptsBookingOffer(
+  messages: Awaited<ReturnType<ConversationRepository["getConversationContext"]>>["messages"],
+  inboundMessageId: string,
+): boolean {
+  const currentIndex = messages.findIndex((message) => message.id === inboundMessageId);
+  if (currentIndex <= 0) return false;
+  const current = messages[currentIndex];
+  const previous = messages[currentIndex - 1];
+  if (!current?.content || previous?.direction !== "OUTBOUND" || !previous.content) return false;
+  const affirmative = /^(?:s[ií]|claro|perfecto|ok(?:ay)?|dale|listo)[!¡?¿.,\s]*$/i.test(current.content.trim());
+  const bookingOffer = /(?:quieres|te gustar[ií]a|puedo)\s+que\s+(?:te\s+)?agend|(?:quieres|te gustar[ií]a)\s+agend|agendo\s+(?:el\s+)?diagn[oó]stico/i.test(previous.content);
+  const closeEnough = new Date(current.occurredAt).getTime() - new Date(previous.occurredAt).getTime() <= 30 * 60 * 1000;
+  return affirmative && bookingOffer && closeEnough;
+}
+
+function wantsAvailability(
+  messages: Awaited<ReturnType<ConversationRepository["getConversationContext"]>>["messages"],
+  inboundMessageId: string,
+): boolean {
+  const current = messages.find((message) => message.id === inboundMessageId);
+  return Boolean(current?.content && AVAILABILITY_REQUEST.test(current.content));
 }
 
 function professionalizeTone(value: string): string {
@@ -413,6 +437,33 @@ export class AutoReplyService {
           conversationId: conversation.id,
           requestedStart: offeredSlotResolution.requestedStart,
         });
+      } else if (
+        this.calendar
+        && this.bookingConfig
+        && (acceptsBookingOffer(conversation.messages, inbound.messageId) || wantsAvailability(conversation.messages, inbound.messageId))
+      ) {
+        generated = {
+          reply: "Voy a consultar dos espacios disponibles.",
+          memoryRelevant: false,
+          humanHandoffRequired: false,
+          humanHandoffReason: "",
+          appointmentRequest: {
+            action: "SUGGEST",
+            requestedStart: null,
+            timezone: this.bookingConfig.timeZone,
+            attendeeName: null,
+            attendeeEmail: null,
+            company: null,
+            reason: null,
+            availabilityDate: null,
+            dayPart: "ANY",
+          },
+          memoryUpdate: conversation.memory,
+        };
+        this.logger.info("booking_availability_fast_path", {
+          conversationId: conversation.id,
+          inboundMessageId: inbound.messageId,
+        });
       } else try {
         generated = await this.ai.generateReply({
           memory: conversation.memory,
@@ -451,6 +502,8 @@ export class AutoReplyService {
       let memoryRelevant = generated.memoryRelevant;
       let memoryUpdate = generated.memoryUpdate;
       const currentBookingEvidence = CURRENT_BOOKING_INTENT.test(currentText)
+        || wantsAvailability(conversation.messages, inbound.messageId)
+        || acceptsBookingOffer(conversation.messages, inbound.messageId)
         || hasSpecificDateOrTime(currentText)
         || offeredSlotResolution.kind === "SELECTED"
         || hasImmediateBookingContinuation(conversation.messages, inbound.messageId);
@@ -493,8 +546,23 @@ export class AutoReplyService {
           conversationId: conversation.id,
           inboundMessageId: inbound.messageId,
         });
-        reply = "¿Qué día y hora te vienen bien?";
-        generated.appointmentRequest = null;
+        if (currentBookingEvidence && this.calendar && this.bookingConfig) {
+          generated.appointmentRequest = {
+            action: "SUGGEST",
+            requestedStart: null,
+            timezone: this.bookingConfig.timeZone,
+            attendeeName: null,
+            attendeeEmail: null,
+            company: null,
+            reason: null,
+            availabilityDate: null,
+            dayPart: "ANY",
+          };
+          reply = "Voy a consultar dos espacios disponibles.";
+        } else {
+          reply = "Cuéntame, ¿qué te gustaría resolver hoy?";
+          generated.appointmentRequest = null;
+        }
         memoryUpdate = removeUnsupportedTemporalMemory(
           memoryUpdate,
           conversation.memory.previousConversationsSummary,
