@@ -113,6 +113,8 @@ describe("OpenAIResponsesProvider persistent memory", () => {
       expect(request.instructions).toContain("¿Cuándo podemos hacer una videollamada?”, usa SUGGEST");
     expect(request.instructions).toContain("Una solicitud antigua o pendiente guardada en memoria no autoriza reutilizar ese horario");
     expect(request.instructions).toContain("usa SUGGEST para consultar Calendar y ofrecer dos espacios reales");
+    expect(request.instructions).toContain("Nunca prometas una acción futura o en segundo plano");
+    expect(request.instructions).toContain("te los muestro en un momento");
     expect(request.instructions).toContain("Nunca guardes en memoria persistente fechas u horas tentativas");
     expect(request.instructions).toContain("Te entusiasma genuinamente el potencial de la inteligencia artificial");
     expect(request.instructions).toContain("avance, tranquilidad");

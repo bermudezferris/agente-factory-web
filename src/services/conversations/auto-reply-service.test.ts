@@ -593,7 +593,7 @@ describe("AutoReplyService", () => {
       ...context(),
       messages: [
         { id: "cta", direction: "OUTBOUND", senderType: "AI_AGENT", content: "¿Quieres que agende el Diagnóstico Estratégico de IA?", occurredAt: "2026-09-17T02:09:47Z", status: "SENT" },
-        { id: "inbound-message", direction: "INBOUND", senderType: "CONTACT", content: "si", occurredAt: "2026-09-17T02:11:00Z", status: "RECEIVED" },
+        { id: "inbound-message", direction: "INBOUND", senderType: "CONTACT", content: "Si porfa", occurredAt: "2026-09-17T02:11:00Z", status: "RECEIVED" },
       ],
     });
 
@@ -623,6 +623,71 @@ describe("AutoReplyService", () => {
       const reply = vi.mocked(whatsapp.sendText).mock.calls[0][2];
       expect(reply).toContain("10:00 a. m");
       expect(reply).toContain("3:00 p. m");
+    },
+  );
+
+  it.each(["Búscalos pues", "Ok me quedé esperando", "Ajá y entonces"])(
+    "executes Calendar in the same turn for a booking search nudge: %s",
+    async (content) => {
+      const { service, ai, calendar, repository, whatsapp } = setup();
+      vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+        ...context(),
+        messages: [
+          { id: "promise", direction: "OUTBOUND", senderType: "AI_AGENT", content: "Ya busco dos espacios disponibles para el diagnóstico.", occurredAt: "2026-09-17T12:25:00Z", status: "SENT" },
+          { id: "inbound-message", direction: "INBOUND", senderType: "CONTACT", content, occurredAt: "2026-09-17T12:25:30Z", status: "RECEIVED" },
+        ],
+      });
+
+      await service.process(inbound);
+
+      expect(ai.generateReply).not.toHaveBeenCalled();
+      expect(calendar.findAvailableSlots).toHaveBeenCalledOnce();
+      expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).not.toMatch(/enseguida|en un momento|estoy buscando/i);
+    },
+  );
+
+  it("selects the only offered slot matching Friday 18 without refreshing availability", async () => {
+    const { service, repository, ai, calendar, whatsapp } = setup();
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context(),
+      messages: [{ ...context().messages[0], content: "Viernes 18", occurredAt: "2026-09-17T12:28:34Z" }],
+    });
+    vi.mocked(repository.getRecentOfferedSlots).mockResolvedValueOnce([
+      "2026-09-17T18:30:00.000Z",
+      "2026-09-18T15:00:00.000Z",
+    ]);
+
+    await service.process(inbound);
+
+    expect(ai.generateReply).not.toHaveBeenCalled();
+    expect(calendar.findAvailableSlots).not.toHaveBeenCalled();
+    expect(calendar.checkAvailability).toHaveBeenCalledWith("2026-09-18T15:00:00.000Z");
+    expect(repository.recordOfferedSlots).toHaveBeenCalledWith(expect.objectContaining({
+      slots: ["2026-09-18T15:00:00.000Z"],
+    }));
+    expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).toContain("11:00 a. m");
+  });
+
+  it.each(["Agenda", "Sí"])(
+    "keeps a single selected slot for contextual confirmation: %s",
+    async (content) => {
+      const { service, repository, ai, calendar, whatsapp } = setup();
+      vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+        ...context(),
+        messages: [
+          { id: "offer", direction: "OUTBOUND", senderType: "AI_AGENT", content: "Tengo libre viernes 18 a las 12:30 p. m. ¿Te funciona?", occurredAt: "2026-09-17T12:29:27Z", status: "SENT" },
+          { id: "inbound-message", direction: "INBOUND", senderType: "CONTACT", content, occurredAt: "2026-09-17T12:29:31Z", status: "RECEIVED" },
+        ],
+      });
+      vi.mocked(repository.getRecentOfferedSlots).mockResolvedValueOnce(["2026-09-18T16:30:00.000Z"]);
+
+      await service.process(inbound);
+
+      expect(ai.generateReply).not.toHaveBeenCalled();
+      expect(calendar.findAvailableSlots).not.toHaveBeenCalled();
+      expect(calendar.checkAvailability).toHaveBeenCalledWith("2026-09-18T16:30:00.000Z");
+      expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).toContain("12:30 p. m");
+      expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).not.toContain("lunes");
     },
   );
 

@@ -295,16 +295,12 @@ export class SupabaseConversationRepository implements ConversationRepository {
       .order("created_at", { ascending: false })
       .limit(5);
     if (error) throw new Error(`Offered slots lookup failed: ${error.message}`, { cause: error });
-    const activeEvents = [];
-    for (const event of data ?? []) {
-      const metadata = event.metadata as { cleared?: unknown } | null;
-      if (metadata?.cleared === true) break;
-      activeEvents.push(event);
-    }
-    return activeEvents.flatMap((event) => {
-      const slots = (event.metadata as { slots?: unknown } | null)?.slots;
-      return Array.isArray(slots) ? slots.filter((slot): slot is string => typeof slot === "string") : [];
-    });
+    const latest = data?.[0];
+    const metadata = latest?.metadata as { cleared?: unknown; slots?: unknown } | null;
+    if (!latest || metadata?.cleared === true) return [];
+    return Array.isArray(metadata?.slots)
+      ? metadata.slots.filter((slot): slot is string => typeof slot === "string")
+      : [];
   }
 
   async clearRecentOfferedSlots(input: {

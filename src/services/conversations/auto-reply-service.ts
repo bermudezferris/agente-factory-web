@@ -35,6 +35,8 @@ const GREETING_ONLY = /^(?:¡|¿|[\s])*?(?:hola|buenas|buen\s+d[ií]a|buenas\s+t
 const CURRENT_BOOKING_INTENT = /\b(?:agend\w*|reserv\w*|cita|diagn[oó]stico|videollamada|calendar(?:io)?|horario|disponibilidad|reprogram\w*|m(?:ue|o)v\w*|cancel\w*\s+(?:la\s+)?cita)\b/i;
 const BOOKING_CONTINUATION_REPLY = /\b(?:s[ií]|confirm\w*|otra\w*|ninguna|ninguno|primera|segunda|correo|email|mi nombre|empresa|ma[nñ]ana|tarde|temprano)\b|@|\d{1,2}(?::\d{2})?/i;
 const AVAILABILITY_REQUEST = /\b(?:qu[eé]\s+(?:tienes|tienen|hay)\s+dispon\w*|qu[eé]\s+horarios?\s+(?:tienes|tienen|hay)|cu[aá]ndo\s+(?:tienes|tienen|hay)|horarios?\s+dispon\w*|disponibilidad)\b/i;
+const BOOKING_SEARCH_NUDGE = /\b(?:b[uú]scalos?|busca(?:me)?|me\s+qued[eé]\s+esperando|aj[aá]\s+y\s+entonces|y\s+entonces)\b/i;
+const ASYNC_CALENDAR_PROMISE = /\b(?:enseguida|en\s+un\s+momento|ya\s+estoy)\b[^.]{0,100}\b(?:busc|consult|muestro)|\b(?:busco|consulto)\b[^.]{0,100}\b(?:enseguida|en\s+un\s+momento|luego)\b/i;
 
 function hasExplicitDateAndTime(value: string): boolean {
   return DATE_EVIDENCE.test(value) && TIME_EVIDENCE.test(value);
@@ -71,7 +73,7 @@ function acceptsBookingOffer(
   const current = messages[currentIndex];
   const previous = messages[currentIndex - 1];
   if (!current?.content || previous?.direction !== "OUTBOUND" || !previous.content) return false;
-  const affirmative = /^(?:s[ií]|claro|perfecto|ok(?:ay)?|dale|listo)[!¡?¿.,\s]*$/i.test(current.content.trim());
+  const affirmative = /^(?:s[ií]|claro|perfecto|ok(?:ay)?|dale|listo)(?:\s+(?:porfa|por\s+favor))?[!¡?¿.,\s]*$/i.test(current.content.trim());
   const bookingOffer = /(?:quieres|te gustar[ií]a|puedo)\s+que\s+(?:te\s+)?agend|(?:quieres|te gustar[ií]a)\s+agend|agendo\s+(?:el\s+)?diagn[oó]stico/i.test(previous.content);
   const closeEnough = new Date(current.occurredAt).getTime() - new Date(previous.occurredAt).getTime() <= 30 * 60 * 1000;
   return affirmative && bookingOffer && closeEnough;
@@ -81,8 +83,73 @@ function wantsAvailability(
   messages: Awaited<ReturnType<ConversationRepository["getConversationContext"]>>["messages"],
   inboundMessageId: string,
 ): boolean {
-  const current = messages.find((message) => message.id === inboundMessageId);
-  return Boolean(current?.content && AVAILABILITY_REQUEST.test(current.content));
+  const currentIndex = messages.findIndex((message) => message.id === inboundMessageId);
+  const current = currentIndex >= 0 ? messages[currentIndex] : undefined;
+  if (!current?.content) return false;
+  if (AVAILABILITY_REQUEST.test(current.content)) return true;
+  if (!BOOKING_SEARCH_NUDGE.test(current.content)) return false;
+  return messages
+    .slice(Math.max(0, currentIndex - 6), currentIndex)
+    .some((message) => message.content && /(?:agend|diagn[oó]stico|espacios?\s+disponibles?|disponibilidad)/i.test(message.content));
+}
+
+function localDateKey(value: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+  return `${parts.find((part) => part.type === "year")?.value}-${parts.find((part) => part.type === "month")?.value}-${parts.find((part) => part.type === "day")?.value}`;
+}
+
+function preferredDateFromText(value: string, reference: string, timeZone: string): string | null {
+  const normalized = value.toLocaleLowerCase("es");
+  const weekdayNames = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+  const weekdayMatch = weekdayNames.findIndex((name) => normalized.includes(name)
+    || (name === "miércoles" && normalized.includes("miercoles"))
+    || (name === "sábado" && normalized.includes("sabado")));
+  const dayMatch = normalized.match(/\b([12]?\d|3[01])\b/);
+  if (weekdayMatch < 0 && !dayMatch) return null;
+  const referenceDate = new Date(reference);
+  for (let offset = 0; offset <= 62; offset += 1) {
+    const candidate = new Date(referenceDate.getTime() + offset * 24 * 60 * 60 * 1000);
+    const key = localDateKey(candidate.toISOString(), timeZone);
+    const localDay = new Date(`${key}T12:00:00Z`).getUTCDay();
+    if (weekdayMatch >= 0 && localDay !== weekdayMatch) continue;
+    if (dayMatch && Number(key.slice(-2)) !== Number(dayMatch[1])) continue;
+    return key;
+  }
+  return null;
+}
+
+function isSimpleAgendaCommand(value: string): boolean {
+  return /^(?:agenda|ag[eé]ndalo|reserva|res[eé]rvalo)[!¡?¿.,\s]*$/i.test(value.trim());
+}
+
+function isAffirmative(value: string): boolean {
+  return /^(?:s[ií]|claro|perfecto|ok(?:ay)?|dale|listo)(?:\s+(?:porfa|por\s+favor))?[!¡?¿.,\s]*$/i.test(value.trim());
+}
+
+function confirmsReadySlot(
+  messages: Awaited<ReturnType<ConversationRepository["getConversationContext"]>>["messages"],
+  inboundMessageId: string,
+): boolean {
+  const currentIndex = messages.findIndex((message) => message.id === inboundMessageId);
+  if (currentIndex <= 0 || !isAffirmative(messages[currentIndex]?.content ?? "")) return false;
+  const previous = messages[currentIndex - 1];
+  return previous?.direction === "OUTBOUND"
+    && Boolean(previous.content && /quieres\s+que\s+lo\s+deje\s+confirmado/i.test(previous.content));
+}
+
+function knownEmail(
+  messages: Awaited<ReturnType<ConversationRepository["getConversationContext"]>>["messages"],
+): string | null {
+  for (const message of [...messages].reverse()) {
+    const email = message.content?.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
+    if (email) return email;
+  }
+  return null;
 }
 
 function professionalizeTone(value: string): string {
@@ -229,10 +296,22 @@ function resolveOfferedSlotSelection(
   input: string,
   offeredSlots: string[],
   timeZone: string,
+  referenceTime: string,
 ): OfferedSlotResolution {
   const slots = offeredSlots.slice(0, 2);
   if (slots.length === 0) return { kind: "NONE" };
   const normalized = input.toLocaleLowerCase("es").trim();
+  const preferredDate = preferredDateFromText(input, referenceTime, timeZone);
+  if (preferredDate) {
+    const matches = slots.filter((slot) => localDateKey(slot, timeZone) === preferredDate);
+    if (matches.length === 1) return { kind: "SELECTED", requestedStart: matches[0] };
+    if (matches.length > 1) return { kind: "CLARIFY", reply: offeredSlotsReply(matches, timeZone) };
+  }
+  if (isSimpleAgendaCommand(input)) {
+    if (slots.length === 1) return { kind: "SELECTED", requestedStart: slots[0] };
+    if (slots.length > 1) return { kind: "CLARIFY", reply: offeredSlotsReply(slots, timeZone) };
+  }
+  if (isAffirmative(input) && slots.length === 1) return { kind: "SELECTED", requestedStart: slots[0] };
   const ordinal = /\b(?:la\s+)?primera(?:\s+opci[oó]n)?\b/.test(normalized)
     ? 0
     : /\b(?:la\s+)?segunda(?:\s+opci[oó]n)?\b/.test(normalized)
@@ -402,7 +481,12 @@ export class AutoReplyService {
         return;
       }
       const offeredSlotResolution = this.bookingConfig
-        ? resolveOfferedSlotSelection(currentText, offeredSlots, this.bookingConfig.timeZone)
+        ? resolveOfferedSlotSelection(
+            currentText,
+            offeredSlots,
+            this.bookingConfig.timeZone,
+            conversation.messages.find((message) => message.id === inbound.messageId)?.occurredAt ?? new Date().toISOString(),
+          )
         : { kind: "NONE" as const };
       if (offeredSlotResolution.kind === "CLARIFY") {
         const whatsappMessageId = await this.whatsapp.sendText(
@@ -417,18 +501,23 @@ export class AutoReplyService {
       }
       let generated: Awaited<ReturnType<AiProvider["generateReply"]>>;
       if (offeredSlotResolution.kind === "SELECTED") {
+        await this.repository.recordOfferedSlots({
+          conversation,
+          sourceInteractionId: inbound.messageId,
+          slots: [offeredSlotResolution.requestedStart],
+        });
         generated = {
           reply: "Voy a comprobar esa opción.",
           memoryRelevant: false,
           humanHandoffRequired: false,
           humanHandoffReason: "",
           appointmentRequest: {
-            action: "CHECK",
+            action: confirmsReadySlot(conversation.messages, inbound.messageId) ? "BOOK" : "CHECK",
             requestedStart: offeredSlotResolution.requestedStart,
             timezone: this.bookingConfig?.timeZone ?? null,
-            attendeeName: null,
-            attendeeEmail: null,
-            company: null,
+            attendeeName: currentAppointment?.attendeeName ?? conversation.contactName,
+            attendeeEmail: currentAppointment?.attendeeEmail ?? knownEmail(conversation.messages),
+            company: currentAppointment?.company ?? null,
             reason: null,
           },
           memoryUpdate: conversation.memory,
@@ -507,6 +596,29 @@ export class AutoReplyService {
         || hasSpecificDateOrTime(currentText)
         || offeredSlotResolution.kind === "SELECTED"
         || hasImmediateBookingContinuation(conversation.messages, inbound.messageId);
+      if (
+        !generated.appointmentRequest
+        && currentBookingEvidence
+        && this.calendar
+        && this.bookingConfig
+        && ASYNC_CALENDAR_PROMISE.test(generated.reply)
+      ) {
+        generated.appointmentRequest = {
+          action: "SUGGEST",
+          requestedStart: null,
+          timezone: this.bookingConfig.timeZone,
+          attendeeName: null,
+          attendeeEmail: null,
+          company: null,
+          reason: null,
+          availabilityDate: preferredDateFromText(
+            currentText,
+            conversation.messages.find((message) => message.id === inbound.messageId)?.occurredAt ?? new Date().toISOString(),
+            this.bookingConfig.timeZone,
+          ),
+          dayPart: supportedDayPart(currentText, "ANY"),
+        };
+      }
       if (generated.appointmentRequest && !currentBookingEvidence) {
         this.logger.warn("booking_action_rejected_without_current_intent", {
           conversationId: conversation.id,
@@ -523,15 +635,25 @@ export class AutoReplyService {
         }
       }
 
+      const generatedSlotMatchesOffer = Boolean(
+        generated.appointmentRequest?.requestedStart
+        && offeredSlots.includes(generated.appointmentRequest.requestedStart),
+      );
       const timeProvenance = bookingTimeProvenance(
         conversation.messages,
         inbound.messageId,
         currentAppointment,
-      ) ?? (offeredSlotResolution.kind === "SELECTED" ? "RECENT_CONTEXT" : null);
+      ) ?? (offeredSlotResolution.kind === "SELECTED" || generatedSlotMatchesOffer ? "RECENT_CONTEXT" : null);
       const generatedSlot = generated.appointmentRequest?.requestedStart;
       const unsupportedSlot = Boolean(generatedSlot && !timeProvenance);
       const isSuggestion = generated.appointmentRequest?.action === "SUGGEST";
       if (isSuggestion && generated.appointmentRequest) {
+        const preferredDate = preferredDateFromText(
+          currentText,
+          conversation.messages.find((message) => message.id === inbound.messageId)?.occurredAt ?? new Date().toISOString(),
+          this.bookingConfig?.timeZone ?? "America/Caracas",
+        );
+        if (preferredDate) generated.appointmentRequest.availabilityDate = preferredDate;
         if (generated.appointmentRequest.availabilityDate && !supportsAvailabilityDate(currentText)) {
           generated.appointmentRequest.availabilityDate = null;
         }
