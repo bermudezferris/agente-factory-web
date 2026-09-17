@@ -52,9 +52,25 @@ function releaseKeyboard(conversationId: string) {
   ]];
 }
 
+function observerKeyboard(conversationId: string, watching = false) {
+  return [
+    [
+      { text: "Actualizar", callback_data: `refresh:${conversationId}` },
+      watching
+        ? { text: "Dejar de seguir", callback_data: `unwatch:${conversationId}` }
+        : { text: "Seguir en vivo", callback_data: `watch:${conversationId}` },
+    ],
+    [
+      { text: "Tomar conversación", callback_data: `take:${conversationId}` },
+      { text: "Cerrar", callback_data: `close:${conversationId}` },
+    ],
+  ];
+}
+
 export interface HumanConsoleNotifier {
   alertHumanRequired(conversationId: string, reason: string, sourceMessageId: string): Promise<void>;
   notifyInboundDuringHumanActive(inbound: IngestResult): Promise<void>;
+  notifyAiOutbound(conversationId: string, messageId: string, content: string): Promise<void>;
 }
 
 export class TelegramHumanConsoleService implements HumanConsoleNotifier {
@@ -92,13 +108,15 @@ export class TelegramHumanConsoleService implements HumanConsoleNotifier {
     const text = update.message?.text?.trim();
     if (!text) return;
     if (text.startsWith("/status")) return this.sendStatus();
+    if (text.startsWith("/recent")) return this.sendRecent();
+    if (text.startsWith("/unwatch")) return this.stopWatching();
     if (text.startsWith("/release")) return this.releaseActive();
     if (text.startsWith("/cancel")) {
       await this.telegram.sendMessage(this.operatorChatId, "No hay ninguna acción pendiente.");
       return;
     }
     if (text.startsWith("/")) {
-      await this.telegram.sendMessage(this.operatorChatId, "Comando no reconocido. Usa /status, /release o /cancel.");
+      await this.telegram.sendMessage(this.operatorChatId, "Comando no reconocido. Usa /recent, /status, /unwatch, /release o /cancel.");
       return;
     }
     await this.forwardHumanMessage(update.update_id, text);
@@ -137,16 +155,18 @@ export class TelegramHumanConsoleService implements HumanConsoleNotifier {
 
   async notifyInboundDuringHumanActive(inbound: IngestResult): Promise<void> {
     const context = await this.repository.getConversationContext(inbound.conversationId);
-    if (context.status !== "HUMAN_ACTIVE") return;
-    const assignment = await this.telegramRepository.getAssignmentForConversation(context.id);
-    if (!assignment) return;
-    const key = `human-active-inbound:${inbound.messageId}`;
+    const assignment = context.status === "HUMAN_ACTIVE"
+      ? await this.telegramRepository.getAssignmentForConversation(context.id)
+      : null;
+    const watch = assignment ? null : await this.telegramRepository.getWatch(this.operatorChatId);
+    if (!assignment && watch?.conversationId !== context.id) return;
+    const key = `${assignment ? "human-active" : "watch"}-inbound:${inbound.messageId}`;
     if (!await this.telegramRepository.claimNotification(key, context.id, "HUMAN_ACTIVE_MESSAGE")) return;
     try {
       const messageId = await this.telegram.sendMessage(
-        assignment.operatorChatId,
-        `💬 ${displayName(context)}\n\n“${latestMessage(context)}”`,
-        releaseKeyboard(context.id),
+        assignment?.operatorChatId ?? this.operatorChatId,
+        `👤 ${displayName(context)}\n${latestMessage(context)}`,
+        assignment ? releaseKeyboard(context.id) : observerKeyboard(context.id, true),
       );
       await this.telegramRepository.completeNotification(key, messageId);
     } catch (error) {
@@ -155,15 +175,36 @@ export class TelegramHumanConsoleService implements HumanConsoleNotifier {
     }
   }
 
+  async notifyAiOutbound(conversationId: string, messageId: string, content: string): Promise<void> {
+    const watch = await this.telegramRepository.getWatch(this.operatorChatId);
+    if (watch?.conversationId !== conversationId) return;
+    const key = `watch-ai-outbound:${messageId}`;
+    if (!await this.telegramRepository.claimNotification(key, conversationId, "WATCH_AI_MESSAGE")) return;
+    try {
+      const telegramMessageId = await this.telegram.sendMessage(
+        this.operatorChatId,
+        `🤖 Valentina (IA)\n${content}`,
+        observerKeyboard(conversationId, true),
+      );
+      await this.telegramRepository.completeNotification(key, telegramMessageId);
+    } catch (error) {
+      await this.telegramRepository.failNotification(key, error instanceof Error ? error.message : "Unknown outbound mirror error");
+      throw error;
+    }
+  }
+
   private async handleCallback(callbackId: string, data: string): Promise<void> {
     const [action, conversationId] = data.split(":", 2);
     try {
-      if (!conversationId || !["take", "context", "release"].includes(action)) {
+      if (!conversationId || !["take", "context", "view", "refresh", "watch", "unwatch", "close", "release"].includes(action)) {
         await this.telegram.answerCallback(callbackId, "Acción inválida");
         return;
       }
       if (action === "take") await this.take(conversationId);
-      if (action === "context") await this.sendContext(conversationId);
+      if (action === "context" || action === "view" || action === "refresh") await this.sendContext(conversationId);
+      if (action === "watch") await this.startWatching(conversationId);
+      if (action === "unwatch") await this.stopWatching();
+      if (action === "close") await this.telegram.sendMessage(this.operatorChatId, "Vista cerrada.");
       if (action === "release") await this.releaseActive(conversationId);
       await this.telegram.answerCallback(callbackId);
     } catch (error) {
@@ -173,6 +214,8 @@ export class TelegramHumanConsoleService implements HumanConsoleNotifier {
   }
 
   private async take(conversationId: string): Promise<void> {
+    const before = await this.repository.getConversationContext(conversationId);
+    if (before.status === "AI_ACTIVE") await this.repository.transitionConversation(conversationId, "HUMAN_REQUIRED");
     const result = await this.telegramRepository.takeConversation(this.operatorChatId, conversationId);
     if (result.result === "OPERATOR_BUSY" && result.activeConversationId) {
       const active = await this.repository.getConversationContext(result.activeConversationId);
@@ -187,6 +230,7 @@ export class TelegramHumanConsoleService implements HumanConsoleNotifier {
       await this.telegram.sendMessage(this.operatorChatId, "La conversación ya no está disponible para tomar.");
       return;
     }
+    await this.telegramRepository.stopWatching(this.operatorChatId);
     const context = await this.repository.getConversationContext(result.activeConversationId ?? conversationId);
     await this.telegram.sendMessage(
       this.operatorChatId,
@@ -198,6 +242,14 @@ export class TelegramHumanConsoleService implements HumanConsoleNotifier {
   private async forwardHumanMessage(updateId: number, text: string): Promise<void> {
     const assignment = await this.telegramRepository.getActiveAssignment(this.operatorChatId);
     if (!assignment) {
+      const watch = await this.telegramRepository.getWatch(this.operatorChatId);
+      if (watch) {
+        await this.telegram.sendMessage(
+          this.operatorChatId,
+          "Estás observando esta conversación. Para responder al cliente, primero pulsa ‘Tomar conversación’.",
+        );
+        return;
+      }
       await this.telegram.sendMessage(this.operatorChatId, NO_ACTIVE);
       return;
     }
@@ -219,18 +271,50 @@ export class TelegramHumanConsoleService implements HumanConsoleNotifier {
 
   private async sendStatus(): Promise<void> {
     const assignment = await this.telegramRepository.getActiveAssignment(this.operatorChatId);
-    if (!assignment) {
-      await this.telegram.sendMessage(this.operatorChatId, NO_ACTIVE);
+    const watch = await this.telegramRepository.getWatch(this.operatorChatId);
+    const activeContext = assignment ? await this.repository.getConversationContext(assignment.conversationId) : null;
+    const watchContext = watch ? await this.repository.getConversationContext(watch.conversationId) : null;
+    await this.telegram.sendMessage(this.operatorChatId, [
+      "🧑 Conversación humana activa:",
+      activeContext ? displayName(activeContext) : "Ninguna",
+      "",
+      "👀 Observando:",
+      watchContext ? `${displayName(watchContext)} · WhatsApp · ${watchContext.status}` : "Ninguna",
+    ].join("\n"), activeContext ? releaseKeyboard(activeContext.id) : watchContext ? observerKeyboard(watchContext.id, true) : undefined);
+  }
+
+  private async sendRecent(): Promise<void> {
+    const recent = await this.telegramRepository.listRecentConversations(8);
+    if (recent.length === 0) {
+      await this.telegram.sendMessage(this.operatorChatId, "📋 No hay conversaciones recientes.");
       return;
     }
-    const context = await this.repository.getConversationContext(assignment.conversationId);
-    await this.telegram.sendMessage(this.operatorChatId, [
-      `Cliente: ${displayName(context)}`,
-      ...(company(context.memory) ? [`Empresa: ${company(context.memory)}`] : []),
-      `WhatsApp: ${phone(context)}`,
-      "Estado: HUMANO ACTIVO",
-      `Último mensaje: “${latestMessage(context)}”`,
-    ].join("\n"), releaseKeyboard(context.id));
+    const text = ["📋 Conversaciones recientes", "", ...recent.flatMap((item) => [
+      item.contactName || item.contactAddress,
+      `${item.channel} · ${item.status}`,
+      `“${(item.lastMessage ?? "Sin mensajes").slice(0, 90)}”`,
+      "",
+    ])].join("\n").slice(0, 4000);
+    const keyboard = recent.map((item) => [
+      { text: `Ver · ${(item.contactName || item.contactAddress).slice(0, 24)}`, callback_data: `view:${item.id}` },
+      ...(item.status === "HUMAN_REQUIRED" ? [{ text: "Tomar", callback_data: `take:${item.id}` }] : []),
+    ]);
+    await this.telegram.sendMessage(this.operatorChatId, text, keyboard);
+  }
+
+  private async startWatching(conversationId: string): Promise<void> {
+    const context = await this.repository.getConversationContext(conversationId);
+    await this.telegramRepository.startWatching(this.operatorChatId, conversationId);
+    await this.telegram.sendMessage(
+      this.operatorChatId,
+      `👀 Siguiendo a ${displayName(context)}. Valentina (IA) continúa activa normalmente.`,
+      observerKeyboard(conversationId, true),
+    );
+  }
+
+  private async stopWatching(): Promise<void> {
+    await this.telegramRepository.stopWatching(this.operatorChatId);
+    await this.telegram.sendMessage(this.operatorChatId, "Ya no estás siguiendo esta conversación.");
   }
 
   private async sendContext(conversationId: string): Promise<void> {
@@ -244,9 +328,10 @@ export class TelegramHumanConsoleService implements HumanConsoleNotifier {
       ...context.memory.importantObjections,
       ...context.memory.humanHandoffNotes,
     ].slice(0, 8);
-    const messages = context.messages.slice(-6).map((message) =>
-      `${message.direction === "INBOUND" ? "Cliente" : message.senderType === "HUMAN" ? "Alejandro" : "Valentina (IA)"}: ${message.content}`
+    const messages = context.messages.slice(-15).map((message) =>
+      `${message.direction === "INBOUND" ? `👤 ${displayName(context)}` : message.senderType === "HUMAN" ? "🧑 Alejandro" : "🤖 Valentina (IA)"}\n${message.content}`
     );
+    const watch = await this.telegramRepository.getWatch(this.operatorChatId);
     await this.telegram.sendMessage(this.operatorChatId, [
       `👤 ${displayName(context)}`,
       ...(company(context.memory) ? [`Empresa: ${company(context.memory)}`] : []),
@@ -262,7 +347,7 @@ export class TelegramHumanConsoleService implements HumanConsoleNotifier {
       "",
       "Últimos mensajes:",
       messages.join("\n") || "Sin mensajes.",
-    ].join("\n").slice(0, 4000), context.status === "HUMAN_ACTIVE" ? releaseKeyboard(context.id) : takeKeyboard(context.id));
+    ].join("\n").slice(0, 4000), context.status === "HUMAN_ACTIVE" ? releaseKeyboard(context.id) : observerKeyboard(context.id, watch?.conversationId === context.id));
   }
 
   private async releaseActive(expectedConversationId?: string): Promise<void> {

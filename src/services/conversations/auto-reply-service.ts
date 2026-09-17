@@ -327,6 +327,7 @@ export class AutoReplyService {
           acknowledgement,
         );
         await this.repository.completeOutboundMessage(claim.messageId, whatsappMessageId, acknowledgement);
+        await this.notifyAiOutbound(conversation.id, claim.messageId, acknowledgement);
         this.logger.info("human_request_fast_path", { conversationId: conversation.id });
         return;
       }
@@ -365,6 +366,7 @@ export class AutoReplyService {
           greeting,
         );
         await this.repository.completeOutboundMessage(outboundMessageId, whatsappMessageId, greeting);
+        await this.notifyAiOutbound(conversation.id, outboundMessageId, greeting);
         if (offeredSlots.length > 0) {
           await this.repository.clearRecentOfferedSlots({
             conversation,
@@ -385,6 +387,7 @@ export class AutoReplyService {
           offeredSlotResolution.reply,
         );
         await this.repository.completeOutboundMessage(outboundMessageId, whatsappMessageId, offeredSlotResolution.reply);
+        await this.notifyAiOutbound(conversation.id, outboundMessageId, offeredSlotResolution.reply);
         this.logger.info("booking_offered_slot_clarification", { conversationId: conversation.id });
         return;
       }
@@ -431,6 +434,7 @@ export class AutoReplyService {
           fallback,
         );
         await this.repository.completeOutboundMessage(outboundMessageId, whatsappMessageId, fallback);
+        await this.notifyAiOutbound(conversation.id, outboundMessageId, fallback);
         await this.repository.transitionConversation(conversation.id, "HUMAN_REQUIRED");
         await this.notifyHumanRequired(conversation.id, message, inbound.messageId);
         this.logger.info("ai_generation_fallback_sent", { conversationId: conversation.id, messageId: outboundMessageId });
@@ -530,6 +534,7 @@ export class AutoReplyService {
         reply,
       );
       await this.repository.completeOutboundMessage(outboundMessageId, whatsappMessageId, reply);
+      await this.notifyAiOutbound(conversation.id, outboundMessageId, reply);
       if (humanHandoffRequired) {
         await this.repository.transitionConversation(conversation.id, "HUMAN_REQUIRED");
         this.logger.info("ai_handoff_requested", { conversationId: conversation.id, reason: humanHandoffReason });
@@ -573,6 +578,18 @@ export class AutoReplyService {
       this.logger.error("telegram_handoff_alert_error", {
         conversationId,
         error: error instanceof Error ? error.message : "Unknown Telegram alert error",
+      });
+    }
+  }
+
+  private async notifyAiOutbound(conversationId: string, messageId: string, content: string): Promise<void> {
+    if (!this.humanConsoleNotifier) return;
+    try {
+      await this.humanConsoleNotifier.notifyAiOutbound(conversationId, messageId, content);
+    } catch (error) {
+      this.logger.error("telegram_watch_outbound_error", {
+        conversationId,
+        error: error instanceof Error ? error.message : "Unknown Telegram mirror error",
       });
     }
   }

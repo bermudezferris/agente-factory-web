@@ -125,6 +125,7 @@ describe("WhatsApp webhook controller", () => {
     const humanConsoleNotifier = {
       alertHumanRequired: vi.fn(),
       notifyInboundDuringHumanActive: vi.fn().mockResolvedValue(undefined),
+      notifyAiOutbound: vi.fn().mockResolvedValue(undefined),
     };
     const deps = { ...dependencies(repository), humanConsoleNotifier };
 

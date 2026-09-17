@@ -17,6 +17,22 @@ export type ReleaseResult = {
   releasedConversationId: string | null;
 };
 
+export type TelegramWatch = {
+  operatorChatId: string;
+  conversationId: string;
+  startedAt: string;
+};
+
+export type RecentTelegramConversation = {
+  id: string;
+  contactName: string | null;
+  contactAddress: string;
+  channel: string;
+  status: string;
+  lastMessage: string | null;
+  lastMessageAt: string | null;
+};
+
 export interface TelegramConsoleRepository {
   claimUpdate(dedupeKey: string, updateId: number, updateType: string): Promise<boolean>;
   claimNotification(idempotencyKey: string, conversationId: string, type: string): Promise<boolean>;
@@ -28,6 +44,10 @@ export interface TelegramConsoleRepository {
   releaseConversation(operatorChatId: string): Promise<ReleaseResult>;
   recordEvent(conversationId: string, eventType: string, metadata?: Record<string, unknown>): Promise<void>;
   getEscalationReason(conversationId: string): Promise<string | null>;
+  listRecentConversations(limit: number): Promise<RecentTelegramConversation[]>;
+  getWatch(operatorChatId: string): Promise<TelegramWatch | null>;
+  startWatching(operatorChatId: string, conversationId: string): Promise<TelegramWatch>;
+  stopWatching(operatorChatId: string): Promise<string | null>;
 }
 
 export class SupabaseTelegramConsoleRepository implements TelegramConsoleRepository {
@@ -135,6 +155,67 @@ export class SupabaseTelegramConsoleRepository implements TelegramConsoleReposit
     if (error) throw new Error(`Escalation reason lookup failed: ${error.message}`, { cause: error });
     const reason = data?.metadata && typeof data.metadata === "object" ? (data.metadata as Record<string, unknown>).reason : null;
     return typeof reason === "string" ? reason : null;
+  }
+
+  async listRecentConversations(limit: number): Promise<RecentTelegramConversation[]> {
+    const { data: conversations, error } = await this.client.from("conversations")
+      .select("id, status, last_message_at, updated_at, contacts(display_name, whatsapp_wa_id), whatsapp_channels(name)")
+      .order("last_message_at", { ascending: false, nullsFirst: false })
+      .limit(limit);
+    if (error) throw new Error(`Recent conversations lookup failed: ${error.message}`, { cause: error });
+    const ids = (conversations ?? []).map((item) => item.id);
+    const { data: messages, error: messagesError } = ids.length
+      ? await this.client.from("messages")
+        .select("conversation_id, content, occurred_at")
+        .in("conversation_id", ids)
+        .not("content", "is", null)
+        .order("occurred_at", { ascending: false })
+        .limit(limit * 4)
+      : { data: [], error: null };
+    if (messagesError) throw new Error(`Recent messages lookup failed: ${messagesError.message}`, { cause: messagesError });
+    const latest = new Map<string, { content: string | null; occurred_at: string }>();
+    for (const message of messages ?? []) if (!latest.has(message.conversation_id)) latest.set(message.conversation_id, message);
+    return (conversations ?? []).map((item) => {
+      const contact = item.contacts as unknown as { display_name: string | null; whatsapp_wa_id: string };
+      const message = latest.get(item.id);
+      return {
+        id: item.id,
+        contactName: contact.display_name,
+        contactAddress: contact.whatsapp_wa_id,
+        channel: "WhatsApp",
+        status: item.status,
+        lastMessage: message?.content ?? null,
+        lastMessageAt: message?.occurred_at ?? item.last_message_at,
+      };
+    });
+  }
+
+  async getWatch(operatorChatId: string): Promise<TelegramWatch | null> {
+    const { data, error } = await this.client.from("conversation_events")
+      .select("conversation_id, event_type, created_at, metadata")
+      .in("event_type", ["TELEGRAM_WATCH_STARTED", "TELEGRAM_WATCH_STOPPED"])
+      .contains("metadata", { operator_chat_id: operatorChatId })
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`Telegram watch lookup failed: ${error.message}`, { cause: error });
+    if (!data || data.event_type !== "TELEGRAM_WATCH_STARTED") return null;
+    return { operatorChatId, conversationId: data.conversation_id, startedAt: data.created_at };
+  }
+
+  async startWatching(operatorChatId: string, conversationId: string): Promise<TelegramWatch> {
+    const active = await this.getWatch(operatorChatId);
+    if (active?.conversationId === conversationId) return active;
+    if (active) await this.stopWatching(operatorChatId);
+    await this.recordEvent(conversationId, "TELEGRAM_WATCH_STARTED", { operator_chat_id: operatorChatId });
+    return { operatorChatId, conversationId, startedAt: new Date().toISOString() };
+  }
+
+  async stopWatching(operatorChatId: string): Promise<string | null> {
+    const active = await this.getWatch(operatorChatId);
+    if (!active) return null;
+    await this.recordEvent(active.conversationId, "TELEGRAM_WATCH_STOPPED", { operator_chat_id: operatorChatId });
+    return active.conversationId;
   }
 }
 

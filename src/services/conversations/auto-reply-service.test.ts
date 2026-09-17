@@ -126,6 +126,7 @@ function setup(status: ConversationContext["status"] = "AI_ACTIVE", claimed = tr
   const humanConsole = {
     alertHumanRequired: vi.fn().mockResolvedValue(undefined),
     notifyInboundDuringHumanActive: vi.fn().mockResolvedValue(undefined),
+    notifyAiOutbound: vi.fn().mockResolvedValue(undefined),
   } as HumanConsoleNotifier;
   return {
     repository,

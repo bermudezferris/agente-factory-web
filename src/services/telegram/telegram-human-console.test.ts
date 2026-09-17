@@ -48,6 +48,7 @@ function setup(status: ConversationContext["status"] = "HUMAN_ACTIVE") {
   const repository = {
     getConversationContext: vi.fn().mockResolvedValue(context(status)),
     mergeContactMemory: vi.fn().mockResolvedValue(undefined),
+    transitionConversation: vi.fn().mockResolvedValue(undefined),
   } as unknown as ConversationRepository;
   const telegramRepository = {
     claimUpdate: vi.fn(async (key: string) => claimed.has(key) ? false : (claimed.add(key), true)),
@@ -60,6 +61,13 @@ function setup(status: ConversationContext["status"] = "HUMAN_ACTIVE") {
     releaseConversation: vi.fn().mockResolvedValue({ result: "RELEASED", releasedConversationId: conversationId }),
     recordEvent: vi.fn().mockResolvedValue(undefined),
     getEscalationReason: vi.fn().mockResolvedValue("El cliente pidió una propuesta"),
+    listRecentConversations: vi.fn().mockResolvedValue([
+      { id: conversationId, contactName: "Carlos Pérez", contactAddress: "584121234567", channel: "WhatsApp", status, lastMessage: "Somos tres clínicas.", lastMessageAt: "2026-09-16T10:01:00Z" },
+      { id: "22222222-2222-4222-8222-222222222222", contactName: "María Gómez", contactAddress: "584121111111", channel: "WhatsApp", status: "AI_ACTIVE", lastMessage: "¿Cuánto cuesta?", lastMessageAt: "2026-09-16T09:00:00Z" },
+    ]),
+    getWatch: vi.fn().mockResolvedValue(null),
+    startWatching: vi.fn().mockResolvedValue({ operatorChatId, conversationId, startedAt: "2026-09-16T10:03:00Z" }),
+    stopWatching: vi.fn().mockResolvedValue(conversationId),
   } as unknown as TelegramConsoleRepository;
   const telegram = {
     sendMessage: vi.fn().mockResolvedValue(10),
@@ -172,7 +180,7 @@ describe("TelegramHumanConsoleService", () => {
   it("supports /status and /cancel", async () => {
     const first = setup();
     await first.service.handleUpdate(messageUpdate(10, "/status"));
-    expect(first.telegram.sendMessage).toHaveBeenCalledWith(operatorChatId, expect.stringContaining("HUMANO ACTIVO"), expect.any(Array));
+    expect(first.telegram.sendMessage).toHaveBeenCalledWith(operatorChatId, expect.stringContaining("Conversación humana activa"), expect.any(Array));
     const second = setup();
     await second.service.handleUpdate(messageUpdate(11, "/cancel"));
     expect(second.telegram.sendMessage).toHaveBeenCalledWith(operatorChatId, "No hay ninguna acción pendiente.");
@@ -206,5 +214,87 @@ describe("TelegramHumanConsoleService", () => {
     await service.handleUpdate(update);
     await service.handleUpdate(callbackUpdate(15, "same-callback", `take:${conversationId}`));
     expect(telegramRepository.takeConversation).toHaveBeenCalledOnce();
+  });
+
+  it("lists recent conversations in repository order with the latest message", async () => {
+    const { service, telegram, telegramRepository } = setup("AI_ACTIVE");
+    await service.handleUpdate(messageUpdate(20, "/recent"));
+    expect(telegramRepository.listRecentConversations).toHaveBeenCalledWith(8);
+    const text = vi.mocked(telegram.sendMessage).mock.calls[0][1];
+    expect(text.indexOf("Carlos Pérez")).toBeLessThan(text.indexOf("María Gómez"));
+    expect(text).toContain("Somos tres clínicas.");
+    expect(text).not.toContain(conversationId);
+  });
+
+  it("opens and refreshes a conversation with the latest readable messages", async () => {
+    const { service, telegram, repository } = setup("AI_ACTIVE");
+    vi.mocked(repository.getConversationContext).mockResolvedValue({
+      ...context("AI_ACTIVE"),
+      messages: [
+        context("AI_ACTIVE").messages[0],
+        { ...context("AI_ACTIVE").messages[1], senderType: "AI_AGENT" },
+      ],
+    });
+    await service.handleUpdate(callbackUpdate(21, "view-21", `view:${conversationId}`));
+    await service.handleUpdate(callbackUpdate(22, "refresh-22", `refresh:${conversationId}`));
+    expect(repository.getConversationContext).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(telegram.sendMessage).mock.calls[0][1]).toContain("👤 Carlos Pérez");
+    expect(vi.mocked(telegram.sendMessage).mock.calls[0][1]).toContain("🤖 Valentina (IA)");
+  });
+
+  it("starts watching without changing AI_ACTIVE", async () => {
+    const { service, telegramRepository, repository } = setup("AI_ACTIVE");
+    await service.handleUpdate(callbackUpdate(23, "watch-23", `watch:${conversationId}`));
+    expect(telegramRepository.startWatching).toHaveBeenCalledWith(operatorChatId, conversationId);
+    expect(repository.transitionConversation).not.toHaveBeenCalled();
+  });
+
+  it("mirrors inbound and AI outbound once while watching", async () => {
+    const { service, telegramRepository, telegram } = setup("AI_ACTIVE");
+    vi.mocked(telegramRepository.getWatch).mockResolvedValue({ operatorChatId, conversationId, startedAt: "2026-09-16T10:00:00Z" });
+    const incoming: IngestResult = { organizationId: "org", whatsappChannelId: "channel", contactId: "contact", conversationId, messageId: "watch-message", contactCreated: false, conversationCreated: false, duplicate: false };
+    await service.notifyInboundDuringHumanActive(incoming);
+    await service.notifyInboundDuringHumanActive(incoming);
+    await service.notifyAiOutbound(conversationId, "ai-message", "Eso está interesante.");
+    await service.notifyAiOutbound(conversationId, "ai-message", "Eso está interesante.");
+    expect(telegram.sendMessage).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(telegram.sendMessage).mock.calls[0][1]).toContain("👤 Carlos Pérez");
+    expect(vi.mocked(telegram.sendMessage).mock.calls[1][1]).toContain("🤖 Valentina (IA)");
+  });
+
+  it("blocks normal text while only watching", async () => {
+    const { service, telegramRepository, manualReply, telegram } = setup("AI_ACTIVE");
+    vi.mocked(telegramRepository.getActiveAssignment).mockResolvedValueOnce(null);
+    vi.mocked(telegramRepository.getWatch).mockResolvedValueOnce({ operatorChatId, conversationId, startedAt: "2026-09-16T10:00:00Z" });
+    await service.handleUpdate(messageUpdate(24, "Hola cliente"));
+    expect(manualReply.send).not.toHaveBeenCalled();
+    expect(telegram.sendMessage).toHaveBeenCalledWith(operatorChatId, expect.stringContaining("primero pulsa ‘Tomar conversación’"));
+  });
+
+  it("stops watching from button and command without changing conversation status", async () => {
+    const first = setup("AI_ACTIVE");
+    await first.service.handleUpdate(callbackUpdate(25, "unwatch-25", `unwatch:${conversationId}`));
+    expect(first.telegramRepository.stopWatching).toHaveBeenCalledWith(operatorChatId);
+    expect(first.repository.transitionConversation).not.toHaveBeenCalled();
+    const second = setup("AI_ACTIVE");
+    await second.service.handleUpdate(messageUpdate(26, "/unwatch"));
+    expect(second.telegramRepository.stopWatching).toHaveBeenCalledWith(operatorChatId);
+  });
+
+  it("takes AI_ACTIVE by reusing the existing HUMAN_REQUIRED takeover and stops watching", async () => {
+    const { service, repository, telegramRepository } = setup("AI_ACTIVE");
+    await service.handleUpdate(callbackUpdate(27, "take-ai-27", `take:${conversationId}`));
+    expect(repository.transitionConversation).toHaveBeenCalledWith(conversationId, "HUMAN_REQUIRED");
+    expect(telegramRepository.takeConversation).toHaveBeenCalledWith(operatorChatId, conversationId);
+    expect(telegramRepository.stopWatching).toHaveBeenCalledWith(operatorChatId);
+  });
+
+  it("shows both active takeover and watch sections in status", async () => {
+    const { service, telegramRepository, telegram } = setup("HUMAN_ACTIVE");
+    vi.mocked(telegramRepository.getWatch).mockResolvedValueOnce({ operatorChatId, conversationId, startedAt: "2026-09-16T10:00:00Z" });
+    await service.handleUpdate(messageUpdate(28, "/status"));
+    const text = vi.mocked(telegram.sendMessage).mock.calls[0][1];
+    expect(text).toContain("Conversación humana activa");
+    expect(text).toContain("Observando");
   });
 });
