@@ -10,6 +10,7 @@ import type {
   IngestResult,
   OutboundClaim,
   Appointment,
+  ActiveBookingState,
 } from "@/repositories/conversation-repository";
 import { AppointmentSlotConflictError } from "@/repositories/conversation-repository";
 import type { InboundTextMessage } from "@/types/whatsapp";
@@ -344,6 +345,55 @@ export class SupabaseConversationRepository implements ConversationRepository {
       },
     });
     if (error) throw new Error(`Offered slots persistence failed: ${error.message}`, { cause: error });
+  }
+
+  async getActiveBookingState(conversationId: string): Promise<ActiveBookingState | null> {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await this.client
+      .from("conversation_events")
+      .select("event_type,metadata")
+      .eq("conversation_id", conversationId)
+      .in("event_type", ["BOOKING_STATE_UPDATED", "BOOKING_STATE_CLEARED"])
+      .gte("created_at", cutoff)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`Active booking state lookup failed: ${error.message}`, { cause: error });
+    if (!data || data.event_type === "BOOKING_STATE_CLEARED") return null;
+    const state = (data.metadata as { state?: unknown } | null)?.state as ActiveBookingState | undefined;
+    return state?.selectedSlot && state?.timezone ? state : null;
+  }
+
+  async recordActiveBookingState(input: {
+    conversation: ConversationContext;
+    state: ActiveBookingState;
+  }): Promise<void> {
+    const { error } = await this.client.from("conversation_events").insert({
+      organization_id: input.conversation.organizationId,
+      conversation_id: input.conversation.id,
+      event_type: "BOOKING_STATE_UPDATED",
+      actor_type: "SYSTEM",
+      metadata: { state: input.state },
+    });
+    if (error) throw new Error(`Active booking state persistence failed: ${error.message}`, { cause: error });
+  }
+
+  async clearActiveBookingState(input: {
+    conversation: ConversationContext;
+    sourceInteractionId: string;
+    reason: "BOOKED" | "CANCELLED" | "SLOT_CHANGED" | "SLOT_UNAVAILABLE";
+  }): Promise<void> {
+    const { error } = await this.client.from("conversation_events").insert({
+      organization_id: input.conversation.organizationId,
+      conversation_id: input.conversation.id,
+      event_type: "BOOKING_STATE_CLEARED",
+      actor_type: "SYSTEM",
+      metadata: {
+        reason: input.reason,
+        source_interaction_id: input.sourceInteractionId,
+      },
+    });
+    if (error) throw new Error(`Active booking state cleanup failed: ${error.message}`, { cause: error });
   }
 
   async createAppointmentHold(input: Omit<Appointment, "id" | "calendarEventId" | "status"> & {

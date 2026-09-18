@@ -76,6 +76,9 @@ function setup(status: ConversationContext["status"] = "AI_ACTIVE", claimed = tr
     mergeContactMemory: vi.fn().mockResolvedValue(undefined),
     getCurrentAppointment: vi.fn().mockResolvedValue(null),
     getRecentOfferedSlots: vi.fn().mockResolvedValue([]),
+    getActiveBookingState: vi.fn().mockResolvedValue(null),
+    recordActiveBookingState: vi.fn().mockResolvedValue(undefined),
+    clearActiveBookingState: vi.fn().mockResolvedValue(undefined),
     clearRecentOfferedSlots: vi.fn().mockResolvedValue(undefined),
     recordOfferedSlots: vi.fn().mockResolvedValue(undefined),
     createAppointmentHold: vi.fn().mockResolvedValue({ id: "appointment-hold" }),
@@ -688,6 +691,77 @@ describe("AutoReplyService", () => {
       expect(calendar.checkAvailability).toHaveBeenCalledWith("2026-09-18T16:30:00.000Z");
       expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).toContain("12:30 p. m");
       expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).not.toContain("lunes");
+    },
+  );
+
+  it("keeps the selected slot while normalizing an accented email", async () => {
+    const { service, repository, ai, calendar, whatsapp } = setup();
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context(),
+      messages: [{ ...context().messages[0], content: "bermúdez.ferris@gmail.com" }],
+    });
+    vi.mocked(repository.getActiveBookingState).mockResolvedValueOnce({
+      selectedSlot: "2026-09-21T17:00:00.000Z",
+      timezone: "America/Caracas",
+      attendeeName: "María",
+      attendeeEmail: null,
+      emailConfirmationRequired: false,
+      company: null,
+      reason: null,
+      sourceInteractionId: "slot-selection",
+    });
+
+    await service.process(inbound);
+
+    expect(ai.generateReply).not.toHaveBeenCalled();
+    expect(calendar.findAvailableSlots).not.toHaveBeenCalled();
+    expect(calendar.checkAvailability).not.toHaveBeenCalled();
+    expect(repository.recordActiveBookingState).toHaveBeenCalledWith(expect.objectContaining({
+      state: expect.objectContaining({
+        selectedSlot: "2026-09-21T17:00:00.000Z",
+        attendeeEmail: "bermudez.ferris@gmail.com",
+        emailConfirmationRequired: true,
+      }),
+    }));
+    expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).toContain("¿Confirmo bermudez.ferris@gmail.com?");
+  });
+
+  it.each(["sin acento", "ya te lo dije", "sí"])(
+    "completes the same active booking after detail confirmation: %s",
+    async (content) => {
+      const { service, repository, ai, calendar, whatsapp } = setup();
+      vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+        ...context(),
+        messages: [{ ...context().messages[0], content }],
+      });
+      vi.mocked(repository.getActiveBookingState).mockResolvedValueOnce({
+        selectedSlot: "2026-09-21T17:00:00.000Z",
+        timezone: "America/Caracas",
+        attendeeName: "María Pérez",
+        attendeeEmail: "bermudez.ferris@gmail.com",
+        emailConfirmationRequired: true,
+        company: null,
+        reason: null,
+        sourceInteractionId: "slot-selection",
+      });
+
+      await service.process(inbound);
+
+      expect(ai.generateReply).not.toHaveBeenCalled();
+      expect(calendar.findAvailableSlots).not.toHaveBeenCalled();
+      expect(calendar.checkAvailability).toHaveBeenCalledWith("2026-09-21T17:00:00.000Z");
+      expect(repository.createAppointmentHold).toHaveBeenCalledWith(expect.objectContaining({
+        startsAt: "2026-09-21T17:00:00.000Z",
+        attendeeEmail: "bermudez.ferris@gmail.com",
+      }));
+      expect(calendar.create).toHaveBeenCalledWith(expect.objectContaining({
+        requestedStart: "2026-09-21T17:00:00.000Z",
+        email: "bermudez.ferris@gmail.com",
+      }));
+      expect(repository.markAppointmentBooked).toHaveBeenCalledOnce();
+      expect(repository.clearActiveBookingState).toHaveBeenCalledWith(expect.objectContaining({ reason: "BOOKED" }));
+      expect(whatsapp.sendText).toHaveBeenCalledOnce();
+      expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).toContain("Te dejé agendado");
     },
   );
 

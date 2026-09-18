@@ -56,6 +56,9 @@ class MemoryRepository implements ConversationRepository {
   async getRecentOfferedSlots(): Promise<string[]> { return []; }
   async clearRecentOfferedSlots(): Promise<void> {}
   async recordOfferedSlots(): Promise<void> { throw new Error("not used"); }
+  async getActiveBookingState(): Promise<null> { return null; }
+  async recordActiveBookingState(): Promise<void> { throw new Error("not used"); }
+  async clearActiveBookingState(): Promise<void> { throw new Error("not used"); }
   async createAppointmentHold(): Promise<never> { throw new Error("not used"); }
   async markAppointmentBooked(): Promise<void> { throw new Error("not used"); }
   async markAppointmentFailed(): Promise<void> { throw new Error("not used"); }

@@ -2,6 +2,7 @@ import type { AiProvider, AppointmentAction } from "@/services/ai/openai-respons
 import type { WhatsAppClient } from "@/services/whatsapp/meta-whatsapp-client";
 import {
   AppointmentSlotConflictError,
+  type ActiveBookingState,
   type Appointment,
   type ContactMemory,
   type ConversationRepository,
@@ -150,6 +151,87 @@ function knownEmail(
     if (email) return email;
   }
   return null;
+}
+
+function canonicalEmail(value: string): { email: string; corrected: boolean } | null {
+  const raw = value.match(/[\p{L}0-9._%+-]+@[\p{L}0-9.-]+\.[\p{L}]{2,}/iu)?.[0];
+  if (!raw) return null;
+  const email = raw.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return { email, corrected: email !== raw.toLowerCase() };
+}
+
+function activeBookingGenerated(
+  state: ActiveBookingState,
+  currentText: string,
+  conversation: Awaited<ReturnType<ConversationRepository["getConversationContext"]>>,
+): Awaited<ReturnType<AiProvider["generateReply"]>> | null {
+  if (BOOKING_RESET.test(currentText)) return null;
+  const suppliedEmail = canonicalEmail(currentText);
+  const confirmsCorrection = /\b(?:sin\s+acento|ya\s+te\s+lo\s+dije)\b/i.test(currentText)
+    || (state.emailConfirmationRequired && isAffirmative(currentText));
+  const attendeeEmail = suppliedEmail?.email
+    ?? (confirmsCorrection ? state.attendeeEmail : state.attendeeEmail);
+  const emailConfirmationRequired = suppliedEmail?.corrected === true
+    ? true
+    : confirmsCorrection ? false : state.emailConfirmationRequired;
+  const attendeeName = state.attendeeName ?? conversation.contactName;
+  const updated: ActiveBookingState = {
+    ...state,
+    attendeeName,
+    attendeeEmail,
+    emailConfirmationRequired,
+  };
+  const memoryUpdate = conversation.memory;
+  if (emailConfirmationRequired && attendeeEmail) {
+    return {
+      reply: `Entiendo. ¿Confirmo ${attendeeEmail}?`,
+      memoryRelevant: false,
+      humanHandoffRequired: false,
+      humanHandoffReason: "",
+      appointmentRequest: null,
+      memoryUpdate,
+      bookingStateUpdate: updated,
+    } as Awaited<ReturnType<AiProvider["generateReply"]>> & { bookingStateUpdate: ActiveBookingState };
+  }
+  if (!attendeeEmail) {
+    return {
+      reply: "Perfecto. Para dejar ese horario confirmado, ¿me das tu correo?",
+      memoryRelevant: false,
+      humanHandoffRequired: false,
+      humanHandoffReason: "",
+      appointmentRequest: null,
+      memoryUpdate,
+      bookingStateUpdate: updated,
+    } as Awaited<ReturnType<AiProvider["generateReply"]>> & { bookingStateUpdate: ActiveBookingState };
+  }
+  if (!attendeeName) {
+    return {
+      reply: "Perfecto. Solo me falta tu nombre completo para dejarlo confirmado.",
+      memoryRelevant: false,
+      humanHandoffRequired: false,
+      humanHandoffReason: "",
+      appointmentRequest: null,
+      memoryUpdate,
+      bookingStateUpdate: updated,
+    } as Awaited<ReturnType<AiProvider["generateReply"]>> & { bookingStateUpdate: ActiveBookingState };
+  }
+  return {
+    reply: "Voy a dejar ese horario confirmado.",
+    memoryRelevant: false,
+    humanHandoffRequired: false,
+    humanHandoffReason: "",
+    appointmentRequest: {
+      action: "BOOK",
+      requestedStart: state.selectedSlot,
+      timezone: state.timezone,
+      attendeeName,
+      attendeeEmail,
+      company: state.company,
+      reason: state.reason,
+    },
+    memoryUpdate,
+    bookingStateUpdate: updated,
+  } as Awaited<ReturnType<AiProvider["generateReply"]>> & { bookingStateUpdate: ActiveBookingState };
 }
 
 function professionalizeTone(value: string): string {
@@ -458,6 +540,32 @@ export class AutoReplyService {
         ? await this.repository.getCurrentAppointment(conversation.contactId)
         : null;
       const currentText = conversation.messages.find((message) => message.id === inbound.messageId)?.content ?? "";
+      let activeBookingState = this.calendar && this.bookingConfig
+        ? await this.repository.getActiveBookingState(conversation.id)
+        : null;
+      if (activeBookingState && BOOKING_RESET.test(currentText)) {
+        await this.repository.clearActiveBookingState({
+          conversation,
+          sourceInteractionId: inbound.messageId,
+          reason: "CANCELLED",
+        });
+        const cancellation = "Listo, cancelé este proceso de agenda. Si quieres retomarlo después, me dices.";
+        const whatsappMessageId = await this.whatsapp.sendText(conversation.phoneNumberId, conversation.contactWaId, cancellation);
+        await this.repository.completeOutboundMessage(outboundMessageId, whatsappMessageId, cancellation);
+        await this.notifyAiOutbound(conversation.id, outboundMessageId, cancellation);
+        return;
+      }
+      const changesSelectedSlot = activeBookingState
+        && !canonicalEmail(currentText)
+        && (hasSpecificDateOrTime(currentText) || /\b(?:otra\s+hora|otro\s+d[ií]a|cambiar\s+(?:la\s+)?hora)\b/i.test(currentText));
+      if (activeBookingState && changesSelectedSlot) {
+        await this.repository.clearActiveBookingState({
+          conversation,
+          sourceInteractionId: inbound.messageId,
+          reason: "SLOT_CHANGED",
+        });
+        activeBookingState = null;
+      }
       const offeredSlots = this.calendar && this.bookingConfig
         ? await this.repository.getRecentOfferedSlots(conversation.id)
         : [];
@@ -500,7 +608,12 @@ export class AutoReplyService {
         return;
       }
       let generated: Awaited<ReturnType<AiProvider["generateReply"]>>;
-      if (offeredSlotResolution.kind === "SELECTED") {
+      const lockedBookingGenerated = activeBookingState
+        ? activeBookingGenerated(activeBookingState, currentText, conversation)
+        : null;
+      if (lockedBookingGenerated) {
+        generated = lockedBookingGenerated;
+      } else if (offeredSlotResolution.kind === "SELECTED") {
         await this.repository.recordOfferedSlots({
           conversation,
           sourceInteractionId: inbound.messageId,
@@ -590,7 +703,12 @@ export class AutoReplyService {
       let humanHandoffReason = generated.humanHandoffReason;
       let memoryRelevant = generated.memoryRelevant;
       let memoryUpdate = generated.memoryUpdate;
+      const bookingStateUpdate = (generated as typeof generated & { bookingStateUpdate?: ActiveBookingState }).bookingStateUpdate;
+      if (bookingStateUpdate) {
+        await this.repository.recordActiveBookingState({ conversation, state: bookingStateUpdate });
+      }
       const currentBookingEvidence = CURRENT_BOOKING_INTENT.test(currentText)
+        || Boolean(activeBookingState)
         || wantsAvailability(conversation.messages, inbound.messageId)
         || acceptsBookingOffer(conversation.messages, inbound.messageId)
         || hasSpecificDateOrTime(currentText)
@@ -643,7 +761,13 @@ export class AutoReplyService {
         conversation.messages,
         inbound.messageId,
         currentAppointment,
-      ) ?? (offeredSlotResolution.kind === "SELECTED" || generatedSlotMatchesOffer ? "RECENT_CONTEXT" : null);
+      ) ?? (
+        offeredSlotResolution.kind === "SELECTED"
+        || generatedSlotMatchesOffer
+        || generated.appointmentRequest?.requestedStart === activeBookingState?.selectedSlot
+          ? "RECENT_CONTEXT"
+          : null
+      );
       const generatedSlot = generated.appointmentRequest?.requestedStart;
       const unsupportedSlot = Boolean(generatedSlot && !timeProvenance);
       const isSuggestion = generated.appointmentRequest?.action === "SUGGEST";
@@ -831,6 +955,11 @@ export class AutoReplyService {
           sourceInteractionId: inbound.messageId,
           reason: "CANCELLED",
         });
+        await this.repository.clearActiveBookingState({
+          conversation,
+          sourceInteractionId: inbound.messageId,
+          reason: "CANCELLED",
+        });
         return {
           ...unchanged("Listo, cancelé tu cita. Si quieres coordinar otra fecha más adelante, me dices."),
           memoryRelevant: true,
@@ -864,7 +993,27 @@ export class AutoReplyService {
 
       if (action === "CHECK") {
         const availability = await this.calendar.checkAvailability(request.requestedStart);
-        if (!availability.available) return unchanged(alternativesReply(availability, request.timezone ?? this.bookingConfig.timeZone));
+        if (!availability.available) {
+          await this.repository.clearActiveBookingState({
+            conversation,
+            sourceInteractionId: inbound.messageId,
+            reason: "SLOT_UNAVAILABLE",
+          });
+          return unchanged(alternativesReply(availability, request.timezone ?? this.bookingConfig.timeZone));
+        }
+        await this.repository.recordActiveBookingState({
+          conversation,
+          state: {
+            selectedSlot: request.requestedStart,
+            timezone: request.timezone ?? this.bookingConfig.timeZone,
+            attendeeName: request.attendeeName ?? conversation.contactName,
+            attendeeEmail: request.attendeeEmail,
+            emailConfirmationRequired: false,
+            company: request.company,
+            reason: request.reason,
+            sourceInteractionId: inbound.messageId,
+          },
+        });
         const missing = [!request.attendeeName && "nombre completo", !request.attendeeEmail && "correo"].filter(Boolean);
         const date = formatDate(request.requestedStart, request.timezone ?? this.bookingConfig.timeZone);
         if (missing.length > 0) {
@@ -937,6 +1086,11 @@ export class AutoReplyService {
           sourceInteractionId: inbound.messageId,
           reason: "BOOKED",
         });
+        await this.repository.clearActiveBookingState({
+          conversation,
+          sourceInteractionId: inbound.messageId,
+          reason: "BOOKED",
+        });
         this.logger.info("calendar_booking_created", {
           conversationId: conversation.id,
           eventId: reservation.eventId,
@@ -964,6 +1118,11 @@ export class AutoReplyService {
       }
     } catch (error) {
       if (error instanceof BookingSlotUnavailableError || error instanceof AppointmentSlotConflictError) {
+        await this.repository.clearActiveBookingState({
+          conversation,
+          sourceInteractionId: inbound.messageId,
+          reason: "SLOT_UNAVAILABLE",
+        });
         const availability = request.requestedStart
           ? await this.calendar.checkAvailability(request.requestedStart)
           : { available: false, alternatives: [], reason: error.message };

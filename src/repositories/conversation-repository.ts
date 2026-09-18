@@ -83,6 +83,17 @@ export type Appointment = {
   reason: string | null;
 };
 
+export type ActiveBookingState = {
+  selectedSlot: string;
+  timezone: string;
+  attendeeName: string | null;
+  attendeeEmail: string | null;
+  emailConfirmationRequired: boolean;
+  company: string | null;
+  reason: string | null;
+  sourceInteractionId: string;
+};
+
 export class AppointmentSlotConflictError extends Error {
   constructor() {
     super("The requested appointment slot is already reserved");
@@ -117,6 +128,16 @@ export interface ConversationRepository {
     conversation: ConversationContext;
     sourceInteractionId: string;
     slots: string[];
+  }): Promise<void>;
+  getActiveBookingState(conversationId: string): Promise<ActiveBookingState | null>;
+  recordActiveBookingState(input: {
+    conversation: ConversationContext;
+    state: ActiveBookingState;
+  }): Promise<void>;
+  clearActiveBookingState(input: {
+    conversation: ConversationContext;
+    sourceInteractionId: string;
+    reason: "BOOKED" | "CANCELLED" | "SLOT_CHANGED" | "SLOT_UNAVAILABLE";
   }): Promise<void>;
   createAppointmentHold(input: Omit<Appointment, "id" | "calendarEventId" | "status"> & {
     sourceInteractionId: string;
