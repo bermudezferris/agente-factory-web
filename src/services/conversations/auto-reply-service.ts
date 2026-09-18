@@ -38,6 +38,8 @@ const BOOKING_CONTINUATION_REPLY = /\b(?:s[ií]|confirm\w*|otra\w*|ninguna|ningu
 const AVAILABILITY_REQUEST = /\b(?:qu[eé]\s+(?:tienes|tienen|hay)\s+dispon\w*|qu[eé]\s+horarios?\s+(?:tienes|tienen|hay)|cu[aá]ndo\s+(?:tienes|tienen|hay)|horarios?\s+dispon\w*|disponibilidad)\b/i;
 const BOOKING_SEARCH_NUDGE = /\b(?:b[uú]scalos?|busca(?:me)?|me\s+qued[eé]\s+esperando|aj[aá]\s+y\s+entonces|y\s+entonces)\b/i;
 const ASYNC_CALENDAR_PROMISE = /\b(?:enseguida|en\s+un\s+momento|ya\s+estoy)\b[^.]{0,100}\b(?:busc|consult|muestro)|\b(?:busco|consulto)\b[^.]{0,100}\b(?:enseguida|en\s+un\s+momento|luego)\b/i;
+const BOOKING_CONFIRMED_REPLY = /\b(?:qued[oó]|est[aá])\s+agendad[oa]\b|\bte\s+dej[eé]\s+agendad[oa]\b|\binvitaci[oó]n\s+al\s+correo\b/i;
+const INTERNAL_PROCESS_NARRATION = /\b(?:voy\s+a\s+(?:verificar|comprobar|consultar|revisar|agendar)|ahora\s+verifico|procedo\s+a|estoy\s+(?:revisando|verificando)|te\s+confirmo\s+en\s+un\s+momento)\b/i;
 
 function hasExplicitDateAndTime(value: string): boolean {
   return DATE_EVIDENCE.test(value) && TIME_EVIDENCE.test(value);
@@ -125,11 +127,70 @@ function preferredDateFromText(value: string, reference: string, timeZone: strin
 }
 
 function isSimpleAgendaCommand(value: string): boolean {
-  return /^(?:agenda|ag[eé]ndalo|reserva|res[eé]rvalo)[!¡?¿.,\s]*$/i.test(value.trim());
+  return /^(?:agenda|ag[eé]ndalo|reserva|res[eé]rvalo)(?:\s+t[uú])?[!¡?¿.,\s]*$/i.test(value.trim());
 }
 
 function isAffirmative(value: string): boolean {
   return /^(?:s[ií]|claro|perfecto|ok(?:ay)?|dale|listo)(?:\s+(?:porfa|por\s+favor))?[!¡?¿.,\s]*$/i.test(value.trim());
+}
+
+function latestOutboundBeforeInbound(
+  messages: Awaited<ReturnType<ConversationRepository["getConversationContext"]>>["messages"],
+  inboundMessageId: string,
+) {
+  const currentIndex = messages.findIndex((message) => message.id === inboundMessageId);
+  if (currentIndex <= 0) return null;
+  return [...messages.slice(0, currentIndex)].reverse().find((message) => message.direction === "OUTBOUND") ?? null;
+}
+
+function isRapidRedundantBookingFollowUp(
+  messages: Awaited<ReturnType<ConversationRepository["getConversationContext"]>>["messages"],
+  inboundMessageId: string,
+): boolean {
+  const current = messages.find((message) => message.id === inboundMessageId);
+  const previous = latestOutboundBeforeInbound(messages, inboundMessageId);
+  if (!current?.content || !previous?.content) return false;
+  if (!isAffirmative(current.content) && !isSimpleAgendaCommand(current.content)) return false;
+  const elapsed = new Date(current.occurredAt).getTime() - new Date(previous.occurredAt).getTime();
+  return elapsed >= 0 && elapsed <= 2 * 60 * 1000 && BOOKING_CONFIRMED_REPLY.test(previous.content);
+}
+
+function semanticTokens(value: string): Set<string> {
+  const stopWords = new Set(["a", "al", "de", "el", "en", "la", "las", "lo", "los", "para", "por", "que", "te", "tu", "un", "una", "y"]);
+  return new Set(value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9@.:\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 1 && !stopWords.has(token)));
+}
+
+function semanticallyEquivalent(left: string, right: string): boolean {
+  const leftTokens = semanticTokens(left);
+  const rightTokens = semanticTokens(right);
+  if (leftTokens.size === 0 || rightTokens.size === 0) return false;
+  const intersection = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  const union = new Set([...leftTokens, ...rightTokens]).size;
+  return intersection / union >= 0.82;
+}
+
+function shouldSuppressRedundantReply(
+  reply: string,
+  messages: Awaited<ReturnType<ConversationRepository["getConversationContext"]>>["messages"],
+  inboundMessageId: string,
+  actionCompleted: boolean,
+): boolean {
+  if (actionCompleted || reply.includes("?")) return false;
+  const previous = latestOutboundBeforeInbound(messages, inboundMessageId);
+  if (!previous?.content) return false;
+  const current = messages.find((message) => message.id === inboundMessageId);
+  const elapsed = current
+    ? new Date(current.occurredAt).getTime() - new Date(previous.occurredAt).getTime()
+    : Number.POSITIVE_INFINITY;
+  if (elapsed < 0 || elapsed > 10 * 60 * 1000) return false;
+  return semanticallyEquivalent(reply, previous.content)
+    || (INTERNAL_PROCESS_NARRATION.test(reply) && BOOKING_CONFIRMED_REPLY.test(previous.content));
 }
 
 function confirmsReadySlot(
@@ -195,7 +256,7 @@ function activeBookingGenerated(
   }
   if (!attendeeEmail) {
     return {
-      reply: "Perfecto. Para dejar ese horario confirmado, ¿me das tu correo?",
+      reply: "Perfecto 😊 Me falta solo tu correo para dejarlo listo.",
       memoryRelevant: false,
       humanHandoffRequired: false,
       humanHandoffReason: "",
@@ -206,7 +267,7 @@ function activeBookingGenerated(
   }
   if (!attendeeName) {
     return {
-      reply: "Perfecto. Solo me falta tu nombre completo para dejarlo confirmado.",
+      reply: "Perfecto 😊 Me falta solo tu nombre completo para dejarlo listo.",
       memoryRelevant: false,
       humanHandoffRequired: false,
       humanHandoffReason: "",
@@ -216,7 +277,7 @@ function activeBookingGenerated(
     } as Awaited<ReturnType<AiProvider["generateReply"]>> & { bookingStateUpdate: ActiveBookingState };
   }
   return {
-    reply: "Voy a dejar ese horario confirmado.",
+    reply: "Perfecto.",
     memoryRelevant: false,
     humanHandoffRequired: false,
     humanHandoffReason: "",
@@ -318,6 +379,17 @@ function formatDate(value: string, timeZone: string): string {
     day: "numeric",
     month: "long",
     year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value)).replace(/\.$/, "");
+}
+
+function formatConfirmationDate(value: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("es-VE", {
+    timeZone,
+    weekday: "long",
+    day: "numeric",
+    month: "long",
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value)).replace(/\.$/, "");
@@ -448,12 +520,10 @@ function dateSearchRange(date: string | null | undefined): { from?: string; to?:
 function bookedReply(
   reservation: CalendarReservation,
   attendeeName: string,
-  config: BookingConfig,
   attendeeTimeZone: string,
 ): string {
   const firstName = attendeeName.trim().split(/\s+/)[0];
-  const zoneLabel = attendeeTimeZone === "America/Caracas" ? "hora de Venezuela" : attendeeTimeZone;
-  return `Listo, ${firstName} 🙌.\n\nTe dejé agendado para el ${formatDate(reservation.start, attendeeTimeZone)}, ${zoneLabel}.\n\nDiagnóstico Estratégico de IA\nDuración: ${config.durationMinutes} minutos\n\nTambién te debería llegar la invitación al correo. ¡Nos vemos ahí!`;
+  return `¡Listo, ${firstName}! 😊 Quedó agendado para el ${formatConfirmationDate(reservation.start, attendeeTimeZone)}. Te llegará la invitación al correo.`;
 }
 
 function appointmentInput(
@@ -531,6 +601,15 @@ export class AutoReplyService {
         return;
       }
       outboundMessageId = claim.messageId;
+
+      if (isRapidRedundantBookingFollowUp(conversation.messages, inbound.messageId)) {
+        await this.repository.failOutboundMessage(outboundMessageId, "redundant_booking_follow_up_suppressed");
+        this.logger.info("redundant_booking_follow_up_suppressed", {
+          conversationId: conversation.id,
+          inboundMessageId: inbound.messageId,
+        });
+        return;
+      }
 
       if ((await this.repository.getConversationStatus(inbound.conversationId)) !== "AI_ACTIVE") {
         await this.repository.failOutboundMessage(outboundMessageId, "conversation_state_changed");
@@ -619,17 +698,20 @@ export class AutoReplyService {
           sourceInteractionId: inbound.messageId,
           slots: [offeredSlotResolution.requestedStart],
         });
+        const attendeeName = currentAppointment?.attendeeName ?? conversation.contactName;
+        const attendeeEmail = currentAppointment?.attendeeEmail ?? knownEmail(conversation.messages);
         generated = {
-          reply: "Voy a comprobar esa opción.",
+          reply: "Perfecto.",
           memoryRelevant: false,
           humanHandoffRequired: false,
           humanHandoffReason: "",
           appointmentRequest: {
-            action: confirmsReadySlot(conversation.messages, inbound.messageId) ? "BOOK" : "CHECK",
+            action: (confirmsReadySlot(conversation.messages, inbound.messageId)
+              || (isSimpleAgendaCommand(currentText) && attendeeName && attendeeEmail)) ? "BOOK" : "CHECK",
             requestedStart: offeredSlotResolution.requestedStart,
             timezone: this.bookingConfig?.timeZone ?? null,
-            attendeeName: currentAppointment?.attendeeName ?? conversation.contactName,
-            attendeeEmail: currentAppointment?.attendeeEmail ?? knownEmail(conversation.messages),
+            attendeeName,
+            attendeeEmail,
             company: currentAppointment?.company ?? null,
             reason: null,
           },
@@ -824,7 +906,9 @@ export class AutoReplyService {
         });
       }
 
+      let appointmentActionCompleted = false;
       if (generated.appointmentRequest) {
+        const requestedAction = generated.appointmentRequest.action;
         const handled = await this.handleAppointmentAction(
           generated.appointmentRequest.action,
           generated.appointmentRequest,
@@ -839,9 +923,24 @@ export class AutoReplyService {
         memoryUpdate = handled.memoryUpdate;
         humanHandoffRequired ||= handled.humanHandoffRequired;
         if (handled.humanHandoffReason) humanHandoffReason = handled.humanHandoffReason;
+        appointmentActionCompleted = ["BOOK", "RESCHEDULE", "CANCEL"].includes(requestedAction)
+          && !handled.humanHandoffRequired;
       }
 
       reply = professionalizeTone(reply);
+      if (shouldSuppressRedundantReply(
+        reply,
+        conversation.messages,
+        inbound.messageId,
+        appointmentActionCompleted,
+      )) {
+        await this.repository.failOutboundMessage(outboundMessageId, "semantic_duplicate_suppressed");
+        this.logger.info("semantic_duplicate_suppressed", {
+          conversationId: conversation.id,
+          inboundMessageId: inbound.messageId,
+        });
+        return;
+      }
       const whatsappMessageId = await this.whatsapp.sendText(
         conversation.phoneNumberId,
         conversation.contactWaId,
@@ -1100,7 +1199,6 @@ export class AutoReplyService {
           ...unchanged(bookedReply(
             reservation,
             eventInput.name,
-            this.bookingConfig,
             request.timezone ?? this.bookingConfig.timeZone,
           )),
           memoryRelevant: true,

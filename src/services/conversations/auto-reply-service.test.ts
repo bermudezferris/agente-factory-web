@@ -761,9 +761,84 @@ describe("AutoReplyService", () => {
       expect(repository.markAppointmentBooked).toHaveBeenCalledOnce();
       expect(repository.clearActiveBookingState).toHaveBeenCalledWith(expect.objectContaining({ reason: "BOOKED" }));
       expect(whatsapp.sendText).toHaveBeenCalledOnce();
-      expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).toContain("Te dejé agendado");
+      expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).toContain("Quedó agendado");
     },
   );
+
+  it("books a single contextual slot before sending one final response", async () => {
+    const { service, repository, ai, calendar, whatsapp } = setup();
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context(),
+      contactName: "María Pérez",
+      messages: [
+        { id: "email", direction: "INBOUND", senderType: "CONTACT", content: "maria@example.com", occurredAt: "2026-09-18T14:00:00Z", status: "RECEIVED" },
+        { id: "offer", direction: "OUTBOUND", senderType: "AI_AGENT", content: "Tengo libre el martes 22 a las 2:30 p. m. ¿Te funciona?", occurredAt: "2026-09-18T14:01:00Z", status: "SENT" },
+        { id: "inbound-message", direction: "INBOUND", senderType: "CONTACT", content: "agéndalo tú", occurredAt: "2026-09-18T14:01:04Z", status: "RECEIVED" },
+      ],
+    });
+    vi.mocked(repository.getRecentOfferedSlots).mockResolvedValueOnce(["2026-09-22T18:30:00.000Z"]);
+    vi.mocked(calendar.create).mockResolvedValueOnce({
+      eventId: "calendar-event",
+      start: "2026-09-22T18:30:00.000Z",
+      end: "2026-09-22T18:55:00.000Z",
+      meetLink: "https://meet.google.com/abc-defg-hij",
+      calendarLink: "https://calendar.google.com/event?eid=test",
+      duplicate: false,
+    });
+
+    await service.process(inbound);
+
+    expect(ai.generateReply).not.toHaveBeenCalled();
+    expect(calendar.checkAvailability).toHaveBeenCalledBefore(vi.mocked(calendar.create));
+    expect(repository.createAppointmentHold).toHaveBeenCalledBefore(vi.mocked(calendar.create));
+    expect(whatsapp.sendText).toHaveBeenCalledOnce();
+    const reply = vi.mocked(whatsapp.sendText).mock.calls[0][2];
+    expect(reply).toContain("¡Listo, María!");
+    expect(reply).toContain("Quedó agendado");
+    expect(reply).not.toMatch(/voy a|verifico|hora de Venezuela|2026/i);
+  });
+
+  it("suppresses a rapid affirmative after the booking was already confirmed", async () => {
+    const { service, repository, ai, calendar, whatsapp } = setup();
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context(),
+      messages: [
+        { id: "booked", direction: "OUTBOUND", senderType: "AI_AGENT", content: "¡Listo! 😊 Quedó agendado para el martes 22 a las 2:30 p. m. Te llegará la invitación al correo.", occurredAt: "2026-09-18T14:01:05Z", status: "SENT" },
+        { id: "inbound-message", direction: "INBOUND", senderType: "CONTACT", content: "sí", occurredAt: "2026-09-18T14:01:08Z", status: "RECEIVED" },
+      ],
+    });
+
+    await service.process(inbound);
+
+    expect(ai.generateReply).not.toHaveBeenCalled();
+    expect(calendar.checkAvailability).not.toHaveBeenCalled();
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+    expect(repository.failOutboundMessage).toHaveBeenCalledWith("outbound", "redundant_booking_follow_up_suppressed");
+  });
+
+  it("suppresses a semantic duplicate that adds no new information", async () => {
+    const { service, repository, ai, whatsapp } = setup();
+    vi.mocked(repository.getConversationContext).mockResolvedValueOnce({
+      ...context(),
+      messages: [
+        { id: "previous", direction: "OUTBOUND", senderType: "AI_AGENT", content: "Perfecto, ya tengo tu correo registrado.", occurredAt: "2026-09-18T14:01:00Z", status: "SENT" },
+        { id: "inbound-message", direction: "INBOUND", senderType: "CONTACT", content: "ok", occurredAt: "2026-09-18T14:01:06Z", status: "RECEIVED" },
+      ],
+    });
+    vi.mocked(ai.generateReply).mockResolvedValueOnce({
+      reply: "Perfecto, ya tengo tu correo registrado.",
+      memoryRelevant: false,
+      humanHandoffRequired: false,
+      humanHandoffReason: "",
+      appointmentRequest: null,
+      memoryUpdate: context().memory,
+    });
+
+    await service.process(inbound);
+
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+    expect(repository.failOutboundMessage).toHaveBeenCalledWith("outbound", "semantic_duplicate_suppressed");
+  });
 
   it("limits proactive availability to the requested day", async () => {
     const { service, ai, calendar, repository } = setup();
@@ -939,7 +1014,7 @@ describe("AutoReplyService", () => {
     expect(whatsapp.sendText).toHaveBeenCalledWith(
       "phone-id",
       "contact-wa-id",
-      expect.stringContaining("Te dejé agendado"),
+      expect.stringContaining("Quedó agendado"),
     );
     expect(repository.mergeContactMemory).toHaveBeenCalledWith(expect.objectContaining({
       memory: expect.objectContaining({ appointmentsAndPending: expect.arrayContaining([
