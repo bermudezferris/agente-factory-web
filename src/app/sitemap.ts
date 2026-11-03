@@ -6,6 +6,7 @@ import { siteConfig } from "@/config/site";
 const canonicalRoutes = [
   "/",
   "/diagnostico-estrategico-ia",
+  "/websites",
   "/privacidad",
   "/privacy",
   "/terms",

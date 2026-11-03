@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { CommercialOffer, WebsitePromotion } from "@/components/brand/commercial-offer";
 import { AgentCard } from "@/components/brand/agent-card";
 import { CtaBanner } from "@/components/brand/cta-banner";
 import { TeamTourShowcase } from "@/components/brand/team-tour-showcase";
@@ -79,58 +80,11 @@ const systemSteps = [
   },
 ];
 
-const diagnosticSteps = [
-  {
-    body: "Sesiones breves, enfocadas y orientadas a detectar el dolor principal, la situación actual y la situación deseada.",
-    step: "1",
-    title: "Entendemos el negocio antes que la tecnología",
-  },
-  {
-    body: "Identificamos brechas, barreras y oportunidades concretas donde la IA puede eliminar fricción o acelerar resultados.",
-    step: "2",
-    title: "Priorizamos oportunidades reales",
-  },
-  {
-    body: "Definimos los agentes adecuados y la forma en que deben trabajar juntos como sistema, no como piezas aisladas.",
-    step: "3",
-    title: "Diseñamos el sistema de agentes",
-  },
-];
-
-const reportSections = [
-  "Dolor identificado",
-  "Situación actual",
-  "Situación deseada",
-  "Brecha encontrada",
-  "Barreras principales",
-  "Oportunidades de IA",
-  "Priorización por impacto y viabilidad",
-  "Tres oportunidades prioritarias",
-  "Indicadores recomendados",
-  "Próximos pasos",
-];
-
 const faqs = [
-  {
-    answer:
-      "No. El diagnóstico está pensado para identificar oportunidades concretas, incluso si hoy no tienes claridad sobre qué tipo de solución necesitas.",
-    question: "¿Necesito saber de IA antes de agendar?",
-  },
-  {
-    answer:
-      "No presentamos agentes como productos sueltos. Primero entendemos el negocio y luego definimos qué agentes hacen falta, cómo se conectan y qué proceso deben transformar.",
-    question: "¿AgenteFactory vende chatbots?",
-  },
-  {
-    answer:
-      "Buscamos detectar el dolor principal, mapear la situación actual y priorizar oportunidades con impacto y viabilidad real para tu empresa.",
-    question: "¿Qué obtengo en el Diagnóstico Estratégico de IA?",
-  },
-  {
-    answer:
-      "Cuando aparece una oportunidad viable, AgenteFactory puede presentar una propuesta separada para diseñar e implementar la solución recomendada.",
-    question: "¿Qué pasa después del diagnóstico?",
-  },
+  { question: "¿La sesión gratuita incluye el diagnóstico?", answer: "La sesión inicial dura 25 minutos y ofrece una primera recomendación. El diagnóstico y plan es un servicio separado de US$250, con entrevista, oportunidades priorizadas, guía e informe con revisión." },
+  { question: "¿Qué incluye el acompañamiento mensual?", answer: "Por US$790 al mes recibes cuatro sesiones individuales de 45 minutos y consultas entre sesiones. Compartes pantalla y trabajamos contigo en una solución a la vez. Licencias y consumos se pagan aparte." },
+  { question: "¿Necesito saber de IA?", answer: "No. Te guiamos paso a paso con tus herramientas y casos reales. Necesitas participar en las sesiones y practicar para aprender a utilizar lo que construimos." },
+  { question: "¿Qué pasa si dejo el servicio?", answer: "Conservas lo construido en tus propias cuentas. Con tu plan puedes continuar con tu equipo o contratar acompañamiento. Los desarrollos adicionales se cotizan según su alcance." },
 ];
 
 export default function Home() {
@@ -153,7 +107,7 @@ export default function Home() {
             <div className="grid gap-8 lg:grid-cols-[1.12fr_0.88fr] lg:items-end">
               <div className="space-y-6">
                 <div className="space-y-4">
-                  <Badge tone="accent">Diagnóstico Estratégico de IA</Badge>
+                  <Badge tone="accent">IA aplicada a tu negocio</Badge>
                   <div className="space-y-4">
                     <h1 className="max-w-5xl text-4xl font-semibold leading-[1.02] tracking-[-0.05em] text-balance text-white sm:text-5xl lg:text-[4.6rem]">
                       Tu empresa ya tiene personas. Ahora puede tener agentes.
@@ -193,12 +147,14 @@ export default function Home() {
             </div>
           </section>
 
+          <CommercialOffer />
+
           <section
             id="agentes"
             className="mx-auto flex w-full max-w-7xl flex-col gap-10 px-6 pb-12 pt-4 sm:px-10 lg:px-12 lg:pt-6"
           >
             <SectionHeading
-              description="Presentamos los agentes como profesionales de IA personificados para hacer visible cómo se organiza el trabajo. No son empleados humanos ni productos aislados."
+              description="Presentamos los agentes como profesionales de IA personificados para hacer visible cómo se organiza el trabajo. Son ejemplos de especialidades: el alcance de cada solución se acuerda por separado."
               eyebrow="Equipo de agentes"
               title="Cada agente tiene una especialidad. El valor es exponencial cuando trabajan como sistema."
             />
@@ -331,129 +287,14 @@ export default function Home() {
             </div>
           </section>
 
-          <section
-            id="diagnostico"
-            className="mx-auto flex w-full max-w-7xl flex-col gap-10 px-6 py-12 sm:px-10 lg:px-12"
-          >
-            <SectionHeading
-              description="El Diagnóstico Estratégico de IA es la puerta de entrada a todo el sistema. Nos permite entender dónde está el problema, qué impacto tendría resolverlo y qué agentes conviene diseñar primero."
-              eyebrow="Entrada comercial"
-              title="El primer paso no es implementar. Es diagnosticar con criterio."
-            />
-
-            <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
-              <Card className="p-6 sm:p-8" surface="solid">
-                <div className="space-y-6">
-                  <p className="text-sm font-medium uppercase tracking-[0.24em] text-cyan-200">
-                    Qué incluye
-                  </p>
-                  <ul className="space-y-4 text-base leading-8 text-slate-300">
-                    <li>Sesión gratuita de 25 minutos con un consultor estratégico de IA.</li>
-                    <li>Detección del dolor principal, la situación actual y la situación deseada.</li>
-                    <li>Identificación de barreras y oportunidades concretas de IA.</li>
-                    <li>Priorización por impacto y viabilidad.</li>
-                    <li>Recomendación de próximos pasos y agentes adecuados.</li>
-                  </ul>
-                  <div className="flex flex-col gap-3 sm:flex-row">
-                    <Button href={siteConfig.cta.href}>
-                      {siteConfig.cta.label}
-                    </Button>
-                    <Button href="#faq" variant="secondary">
-                      Resolver preguntas
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-
-              <div className="grid gap-5">
-                {diagnosticSteps.map((step) => (
-                  <Card key={step.title} className="p-6">
-                    <div className="flex gap-4">
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-cyan-300/24 bg-cyan-300/10 text-base font-semibold text-cyan-100">
-                        {step.step}
-                      </div>
-                      <div className="space-y-2">
-                        <h3 className="text-2xl font-semibold tracking-[-0.03em] text-white">
-                          {step.title}
-                        </h3>
-                        <p className="text-base leading-8 text-slate-300">
-                          {step.body}
-                        </p>
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          <section className="mx-auto flex w-full max-w-7xl flex-col gap-10 px-6 py-12 sm:px-10 lg:px-12">
-            <SectionHeading
-              description="Después de la sesión, los agentes de IA procesan la información y preparan un reporte para ordenar prioridades, visualizar impacto y definir siguientes decisiones."
-              eyebrow="Reporte de salida"
-              title="El diagnóstico no termina en una conversación. Termina en un mapa de oportunidades accionable."
-            />
-
-            <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-              <Card className="p-6 sm:p-8" surface="solid">
-                <div className="space-y-6">
-                  <p className="text-sm font-medium uppercase tracking-[0.24em] text-cyan-200">
-                    Vista previa del reporte
-                  </p>
-                  <div className="rounded-[1.8rem] border border-white/10 bg-white/5 p-5">
-                    <div className="flex items-center justify-between border-b border-white/10 pb-4">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.24em] text-slate-400">
-                          Diagnóstico estratégico de IA
-                        </p>
-                        <p className="mt-2 text-lg font-semibold text-white">
-                          Resumen ejecutivo de oportunidades
-                        </p>
-                      </div>
-                      <div className="rounded-full border border-cyan-300/18 bg-cyan-300/8 px-3 py-1 text-xs uppercase tracking-[0.22em] text-cyan-100">
-                        Vista previa
-                      </div>
-                    </div>
-                    <div className="mt-5 grid gap-3">
-                      {reportSections.slice(0, 6).map((item) => (
-                        <div
-                          key={item}
-                          className="rounded-[1.2rem] border border-white/10 bg-[var(--color-surface-ghost)] px-4 py-3 text-sm text-slate-300"
-                        >
-                          {item}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </Card>
-
-              <Card className="p-6 sm:p-8">
-                <div className="space-y-6">
-                  <p className="text-sm font-medium uppercase tracking-[0.24em] text-cyan-200">
-                    Lo que busca resolver
-                  </p>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {reportSections.map((item) => (
-                      <div
-                        key={item}
-                        className="rounded-[1.35rem] border border-white/10 bg-white/5 px-4 py-4"
-                      >
-                        <p className="text-sm leading-7 text-slate-300">{item}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </Card>
-            </div>
-          </section>
+          <WebsitePromotion />
 
           <section
             id="faq"
             className="mx-auto flex w-full max-w-7xl flex-col gap-10 px-6 py-12 sm:px-10 lg:px-12"
           >
             <SectionHeading
-              description="Respondemos lo esencial para que el visitante entienda que el diagnóstico es una conversación estratégica, no una demo ni una promesa vacía."
+              description="Conoce qué incluye cada etapa y cómo participar en el acompañamiento."
               eyebrow="Preguntas frecuentes"
               title="Preguntas comunes antes de agendar."
             />
@@ -476,7 +317,7 @@ export default function Home() {
 
           <section className="mx-auto flex w-full max-w-7xl flex-col gap-10 px-6 py-12 sm:px-10 lg:px-12">
             <CtaBanner
-              description="Si existe una oportunidad real, después del diagnóstico AgenteFactory puede proponer la implementación adecuada. El objetivo inicial no es vender tecnología. Es entender dónde conviene intervenir y con qué sistema de agentes."
+              description="Empieza con una sesión gratuita de 25 minutos. Después puedes contratar tu plan por US$250 y, si lo necesitas, acompañamiento por US$790 al mes."
               title="Agenda una sesión breve para entender el problema correcto antes de diseñar la solución."
             />
           </section>

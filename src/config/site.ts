@@ -12,7 +12,7 @@ export const siteConfig = {
   supportText:
     "Sesión gratuita de 25 minutos por Zoom o Google Meet con un consultor estratégico de IA.",
   cta: {
-    label: "Agenda tu Diagnóstico Estratégico de IA",
+    label: "Reservar sesión gratuita",
     href: "https://calendar.app.google/g1tSBXA9rHXQ8tLW8",
   },
   secondaryCta: {
@@ -21,9 +21,9 @@ export const siteConfig = {
   },
   privacyHref: "/privacy",
   nav: [
-    { href: "/diagnostico-estrategico-ia", label: "Diagnóstico" },
+    { href: "/#servicios", label: "Servicios y precios" },
     { href: "/#resultados", label: "Resultados" },
-    { href: "/#agentes", label: "Agentes" },
+    { href: "/websites", label: "Websites" },
     { href: "/#faq", label: "FAQ" },
   ],
   contact: {
