@@ -1204,6 +1204,6 @@ describe("AutoReplyService", () => {
     await service.process(inbound);
 
     expect(calendar.get).toHaveBeenCalledWith("calendar-event");
-    expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).toContain("está agendado");
+    expect(vi.mocked(whatsapp.sendText).mock.calls[0][2]).toContain("está agendada");
   });
 });

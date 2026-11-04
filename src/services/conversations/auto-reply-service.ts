@@ -1042,7 +1042,7 @@ export class AutoReplyService {
         if (!current?.calendarEventId) return unchanged("No encuentro una cita activa a tu nombre. Si quieres, revisamos un horario ahora mismo.");
         const event = await this.calendar.get(current.calendarEventId);
         if (!event) throw new Error("La cita guardada no existe en Google Calendar");
-        return unchanged(`Claro. Tu Diagnóstico Estratégico de IA está agendado para el ${formatDate(event.start, current.timezone)}.`);
+        return unchanged(`Claro. Tu sesión inicial gratuita está agendada para el ${formatDate(event.start, current.timezone)}.`);
       }
 
       if (action === "CANCEL") {
@@ -1148,7 +1148,7 @@ export class AutoReplyService {
       }
 
       if (current?.status === "BOOKED" && current.calendarEventId) {
-        return unchanged(`Ya tienes un diagnóstico agendado para el ${formatDate(current.startsAt, current.timezone)}. Si quieres moverlo, dime la nueva fecha y hora.`);
+        return unchanged(`Ya tienes una sesión inicial gratuita agendada para el ${formatDate(current.startsAt, current.timezone)}. Si quieres moverla, dime la nueva fecha y hora.`);
       }
 
       const availability = await this.calendar.checkAvailability(eventInput.requestedStart);
@@ -1160,7 +1160,7 @@ export class AutoReplyService {
         conversationId: conversation.id,
         contactId: conversation.contactId,
         calendarId: this.bookingConfig.calendarId,
-        appointmentType: "Diagnóstico Estratégico de IA",
+        appointmentType: "Sesión inicial gratuita de IA",
         startsAt: start.toISOString(),
         endsAt: end.toISOString(),
         blockedUntil: new Date(end.getTime() + this.bookingConfig.bufferMinutes * 60000).toISOString(),
@@ -1206,7 +1206,7 @@ export class AutoReplyService {
             ...memoryUpdate,
             appointmentsAndPending: [
               ...memoryUpdate.appointmentsAndPending,
-              `appointment_status=BOOKED; appointment_datetime=${reservation.start}; appointment_timezone=${request.timezone ?? this.bookingConfig.timeZone}; appointment_event_id=${reservation.eventId}; appointment_type=Diagnóstico Estratégico de IA; company=${eventInput.company ?? "no indicada"}; attendee_email=${eventInput.email}; contexto=${eventInput.reason ?? "diagnóstico"}`,
+              `appointment_status=BOOKED; appointment_datetime=${reservation.start}; appointment_timezone=${request.timezone ?? this.bookingConfig.timeZone}; appointment_event_id=${reservation.eventId}; appointment_type=Sesión inicial gratuita de IA; company=${eventInput.company ?? "no indicada"}; attendee_email=${eventInput.email}; contexto=${eventInput.reason ?? "sesión inicial"}`,
             ],
           },
         };

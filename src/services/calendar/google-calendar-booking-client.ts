@@ -341,13 +341,13 @@ export class GoogleCalendarBookingClient implements CalendarBookingClient {
       method: "POST",
       body: JSON.stringify({
         id: eventId,
-        summary: `Diagnóstico Estratégico de IA (${input.name})`,
+        summary: `Sesión inicial gratuita de IA (${input.name})`,
         description: [
           "Reserva creada directamente por Valentina (IA) desde WhatsApp.",
           `Contacto: ${input.name}`,
           `Empresa: ${input.company ?? "No indicada"}`,
           `WhatsApp: ${input.contactWaId}`,
-          `Motivo: ${input.reason ?? "Diagnóstico Estratégico de IA"}`,
+          `Motivo: ${input.reason ?? "Sesión inicial gratuita de IA"}`,
           `Conversación: ${input.conversationId}`,
         ].join("\n"),
         attendees: [{ email: input.email, displayName: input.name }],
@@ -385,7 +385,7 @@ export class GoogleCalendarBookingClient implements CalendarBookingClient {
       {
         method: "PATCH",
         body: JSON.stringify({
-          summary: `Diagnóstico Estratégico de IA (${input.name})`,
+          summary: `Sesión inicial gratuita de IA (${input.name})`,
           attendees: [{ email: input.email, displayName: input.name }],
           start: { dateTime: start.toISOString(), timeZone: this.schedule.timeZone },
           end: { dateTime: end.toISOString(), timeZone: this.schedule.timeZone },
