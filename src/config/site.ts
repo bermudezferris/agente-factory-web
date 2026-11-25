@@ -10,11 +10,12 @@ export const siteConfig = {
   description:
     "AgenteFactory identifica oportunidades concretas, diseña sistemas de agentes de IA e implementa soluciones orientadas a resultados empresariales.",
   supportText:
-    "Sesión gratuita de 25 minutos por Zoom o Google Meet con un consultor estratégico de IA.",
+    "Sesión gratuita de 25 minutos con Alejandro Bermúdez. Recibe una recomendación por escrito.",
   cta: {
-    label: "Reservar sesión gratuita",
-    href: "https://calendar.app.google/g1tSBXA9rHXQ8tLW8",
+    label: "Reservar mi sesión gratuita",
+    href: "/#reservar",
   },
+  calendarHref: "https://calendar.app.google/g1tSBXA9rHXQ8tLW8",
   secondaryCta: {
     label: "Conoce a los agentes",
     href: "/#agentes",
@@ -22,7 +23,7 @@ export const siteConfig = {
   privacyHref: "/privacy",
   nav: [
     { href: "/#servicios", label: "Servicios y precios" },
-    { href: "/#resultados", label: "Resultados" },
+    { href: "/#como-funciona", label: "Cómo funciona" },
     { href: "/websites", label: "Websites" },
     { href: "/#faq", label: "FAQ" },
   ],

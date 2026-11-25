@@ -10,13 +10,12 @@ export function SiteFooter() {
             AgenteFactory
           </p>
           <p className="max-w-xl leading-7">
-            Primero entendemos el negocio, detectamos oportunidades concretas y
-            luego diseñamos los agentes adecuados para mover resultados.
+            Te ayudamos a encontrar un problema que valga la pena resolver y a decidir qué probar primero.
           </p>
         </div>
         <div className="space-y-3 text-left lg:text-right">
           <p>Agentes que trabajan. Resultados que se miden.</p>
-          <p>Diagnóstico Estratégico de IA como punto de entrada comercial.</p>
+          <p>Empieza con una sesión gratuita de IA para tu negocio.</p>
           <div className="flex flex-wrap gap-3 lg:justify-end">
             <Button href={siteConfig.contact.whatsappHref} size="sm">
               Escribir por WhatsApp

@@ -10,7 +10,7 @@ export const metadata: Metadata = {
     template: "%s | AgenteFactory",
   },
   description:
-    "Diagnóstico Estratégico de IA para identificar oportunidades reales y diseñar agentes especializados orientados a resultados empresariales.",
+    "Sesión gratuita de IA para tu negocio: 25 minutos con Alejandro Bermúdez y una recomendación por escrito para decidir qué probar primero.",
 };
 
 type RootLayoutProps = Readonly<{

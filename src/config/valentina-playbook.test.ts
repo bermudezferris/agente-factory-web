@@ -16,7 +16,7 @@ describe("Valentina playbook", () => {
   it("keeps the current offers and commercial positioning in one versioned source", () => {
     const playbook = buildValentinaPlaybook(baseInput);
 
-    expect(VALENTINA_PLAYBOOK_VERSION).toBe("2026-11-04.1");
+    expect(VALENTINA_PLAYBOOK_VERSION).toBe("2026-11-25.1");
     expect(playbook).toContain("websites por US$499");
     expect(playbook).toContain("sesión inicial gratuita");
     expect(playbook).toContain("US$250");

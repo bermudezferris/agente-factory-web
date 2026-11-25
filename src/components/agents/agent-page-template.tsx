@@ -73,7 +73,7 @@ export function AgentPageTemplate({
 
                   <div className="flex flex-col gap-3 sm:flex-row">
                     <Button href={siteConfig.cta.href}>
-                      Agenda tu Diagnóstico Estratégico de IA
+                      Reservar mi sesión gratuita
                     </Button>
                     <Button href="/#agentes" variant="secondary">
                       Volver al sistema de agentes
@@ -415,7 +415,7 @@ export function AgentPageTemplate({
               <SectionHeading
                 description="El diagnóstico no se repite como muletilla. Aquí se explica exactamente qué define antes de implementar este agente."
                 eyebrow="Qué determina el diagnóstico"
-                title={`Antes de implementar a ${agent.name}, el Diagnóstico Estratégico de IA debe fijar reglas, límites y lugar dentro del proceso.`}
+                title={`Antes de implementar a ${agent.name}, podemos revisar tu caso en una sesión gratuita.`}
               />
 
               <Card className="p-6 sm:p-8" surface="solid">
@@ -438,7 +438,7 @@ export function AgentPageTemplate({
                       El siguiente paso no es activar al agente más llamativo. Es definir el sistema adecuado para tu negocio.
                     </p>
                     <p className="text-base leading-8 text-slate-300">
-                      El Diagnóstico Estratégico de IA permite decidir si hace
+                      La sesión gratuita permite empezar a explorar si hace
                       falta este agente, varios trabajando juntos o una secuencia
                       distinta según el proceso real de la empresa.
                     </p>
@@ -451,7 +451,7 @@ export function AgentPageTemplate({
                       definir el sistema de agentes correcto.
                     </p>
                     <Button href={siteConfig.cta.href}>
-                      Agenda tu Diagnóstico Estratégico de IA
+                      Reservar mi sesión gratuita
                     </Button>
                   </div>
                 </div>

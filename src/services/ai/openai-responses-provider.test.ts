@@ -82,7 +82,7 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     expect(request.instructions).toContain("Carlos (IA)");
     expect(request.instructions).not.toContain("https://calendar.app.google/");
     expect(request.instructions).toContain("recepción comercial junior");
-    expect(request.instructions).toContain("Tus dos ofertas comerciales principales");
+    expect(request.instructions).toContain("La oferta principal es la Sesión gratuita de IA para tu negocio");
     expect(request.instructions).toContain("la competencia ya está aprendiendo y automatizando");
     expect(request.instructions).toContain("cuando estas capacidades sean estándar ya no diferenciarán");
     expect(request.instructions).toContain("Tu empresa tiene personas. Ahora también puede tener agentes.");
@@ -139,12 +139,12 @@ describe("OpenAIResponsesProvider persistent memory", () => {
     expect(request.instructions).toContain("Quiero agendar");
     expect(request.instructions).toContain("Esto parece complicado");
     expect(request.instructions).toContain("Estoy molesto porque nadie me respondió");
-    expect(request.instructions).toContain("Sesión inicial gratuita");
+    expect(request.instructions).toContain("Sesión gratuita de IA para tu negocio");
     expect(request.instructions).toContain("US$250");
     expect(request.instructions).toContain("US$790 al mes");
     expect(request.instructions).toContain("websites por US$499");
-    expect(request.instructions).toContain("Tus dos ofertas comerciales principales");
-    expect(request.instructions).toContain("presenta solo las dos puertas de entrada");
+    expect(request.instructions).toContain("La oferta principal es la Sesión gratuita de IA para tu negocio");
+    expect(request.instructions).toContain("explica primero la sesión gratuita");
     expect(request.instructions).toContain("no obligues al prospecto de website a agendar primero");
     expect(request.instructions).toContain("Nunca asumas que el contacto tiene una clínica estética");
     expect(request.instructions).not.toContain("El diagnóstico es gratuito");
